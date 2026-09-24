@@ -424,6 +424,21 @@ The floating window parent container is determined as the smallest tiling contai
 
 This technique eliminates the need for an additional binding for focusing floating windows.
 
+[#animations]
+=== Animations (experimental)
+
+AeroSpace can animate tiled windows when the layout changes (`move`, `resize`, `split`, `layout`, etc.)
+
+[source,toml]
+----
+[animations]
+    enabled = true
+    duration-ms = 120
+----
+
+Windows are moved step by step via the Accessibility API, so resizing heavy apps may stutter.
+Switching workspaces, floating windows and fullscreen windows are not animated.
+
 [#emulation-of-virtual-workspaces]
 == Emulation of virtual workspaces
 

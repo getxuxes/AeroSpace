@@ -220,6 +220,23 @@ final class ConfigTest: XCTestCase {
         )
     }
 
+    func testParseAnimations() {
+        let result = parseConfig(
+            """
+            [animations]
+                enabled = true
+                duration-ms = 250
+            """,
+        )
+        assertEquals(result.errors, [])
+        assertEquals(result.config.animations, Animations(enabled: true, durationMs: 250))
+
+        assertEquals(
+            parseConfig("animations.duration-ms = -1").strErrors,
+            ["[ERROR] animations.duration-ms: duration-ms must be in range 0..2000"],
+        )
+    }
+
     func testConfigParseError() {
         assertFalse(parseConfig("true").allowReloadConfig)
         assertEquals(

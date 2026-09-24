@@ -61,6 +61,11 @@ on-mode-changed = []
 
 focus-follows-mouse.enabled = false
 
+# Experimental. Animate tiled windows when the layout changes
+# See: https://nikitabobko.github.io/AeroSpace/guide#animations
+animations.enabled = false
+animations.duration-ms = 120
+
 # Possible values: (qwerty|dvorak|colemak)
 # See https://nikitabobko.github.io/AeroSpace/guide#key-mapping
 key-mapping.preset = 'qwerty'

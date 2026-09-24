@@ -122,6 +122,8 @@ final class MacWindow: Window {
     @MainActor
     func hideInCorner(_ corner: OptimalHideCorner) async throws {
         guard let nodeMonitor else { return }
+        // The window will be unhidden via layoutRecursive. It shouldn't be animated from its old position
+        lastAppliedLayoutPhysicalRect = nil
         // Don't accidentally override prevUnhiddenEmulationPosition in case of subsequent `hideInCorner` calls
         if !isHiddenInCorner {
             guard let windowRect = try await getAxRect(.cancellable) else { return }
@@ -190,7 +192,8 @@ final class MacWindow: Window {
         try await macApp.getAxSize(windowId, cm)
     }
 
-    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+    @MainActor override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+        WindowAnimator.shared.cancel(windowId)
         macApp.setAxFrame(windowId, topLeft, size)
     }
 
