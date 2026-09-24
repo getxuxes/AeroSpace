@@ -25,4 +25,10 @@
 // func _AXUIElementGetWindow(_ axUiElement: AXUIElement, _ id: inout CGWindowID) -> AXError
 AXError _AXUIElementGetWindow(AXUIElementRef element, uint32_t *identifier);
 
+// Makes the app with the given pid frontmost and the given window its key window, atomically, via the WindowServer.
+// Unlike NSRunningApplication.activate, it doesn't let the app pick its own "last active" window upon activation
+// (Chromium and Firefox based browsers do that).
+// Returns false if the private SkyLight API is not available
+bool aerospaceMakeWindowKeyAndFront(pid_t pid, uint32_t windowId);
+
 #endif

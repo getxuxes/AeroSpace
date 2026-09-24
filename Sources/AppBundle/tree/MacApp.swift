@@ -1,5 +1,6 @@
 import AppKit
 import Common
+import PrivateApi
 
 // Potential alternative implementation
 // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0392-custom-actor-executors.md
@@ -130,19 +131,23 @@ final class MacApp: AbstractApp {
     @MainActor func nativeFocus(_ windowId: UInt32) {
         if serverArgs.isReadOnly { return }
         MacApp.focusJob?.cancel()
+        // Activate the app and make the window key in one go. NSRunningApplication.activate is not enough for apps with
+        // several windows: some apps (e.g. Chromium and Firefox based browsers) focus their own "last active" window
+        // upon activation, which steals the focus from the window that we have just raised
+        let isKeyAndFront = aerospaceMakeWindowKeyAndFront(pid, windowId)
         // Performance optimization. If possible avoid doing AX requests
         // (important for apps which are slow at responding even such basic AX requests. E.g. Godot)
         // Beware of the macOS bug: https://github.com/nikitabobko/AeroSpace/issues/101
         if (!NSScreen.screensHaveSeparateSpaces || monitorInfos.count == 1) &&
             (lastNativeFocusedWindowId == windowId || windowsCount == 1)
         {
-            nsApp.activate(options: .activateIgnoringOtherApps)
+            if !isKeyAndFront { nsApp.activate(options: .activateIgnoringOtherApps) }
         } else {
             MacApp.focusJob = withWindowAsync(windowId, .cancellable) { [nsApp] window, job in
                 // Raise firstly to make sure that by the time we activate the app, the window would be already on top
                 window.set(Ax.isMainAttr, true)
                 AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-                nsApp.activate(options: .activateIgnoringOtherApps)
+                if !isKeyAndFront { nsApp.activate(options: .activateIgnoringOtherApps) }
             }
         }
     }
