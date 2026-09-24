@@ -4,6 +4,9 @@
 let balance_sizes_help_generated = """
     USAGE: balance-sizes [-h|--help] [--workspace <workspace>]
     """
+let center_floating_help_generated = """
+    USAGE: center-floating [-h|--help] [--window-id <window-id>] [--width <size>] [--height <size>]
+    """
 let close_all_windows_but_current_help_generated = """
     USAGE: close-all-windows-but-current [-h|--help] [--quit-if-last-window]
     """

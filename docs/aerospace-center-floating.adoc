@@ -1,0 +1,53 @@
+= aerospace-center-floating(1)
+include::util/man-attributes.adoc[]
+:manname: aerospace-center-floating
+// tag::purpose[]
+:manpurpose: Center the floating window on its monitor, optionally resizing it
+// end::purpose[]
+
+// =========================================================== Synopsis
+== Synopsis
+[verse]
+// tag::synopsis[]
+aerospace center-floating [-h|--help] [--window-id <window-id>] [--width <size>] [--height <size>]
+
+// end::synopsis[]
+
+// =========================================================== Description
+== Description
+
+// tag::body[]
+{manpurpose}
+
+The window is centered inside the visible area of its monitor (the area without the menu bar and the Dock) reduced by the outer gaps.
+The command fails if the window is not floating.
+Use `layout floating` first to make the window floating:
+
+[source,toml]
+----
+alt-shift-f = 'layout floating; center-floating --width 70% --height 80%'
+----
+
+If `--width` or `--height` is not specified, the corresponding dimension of the window is kept.
+The window size is clamped to the visible area of the monitor.
+
+// =========================================================== Options
+include::./util/conditional-options-header.adoc[]
+
+-h, --help:: Print help
+
+--width <size>::
+Set the window width.
+`<size>` is either a percentage of the visible monitor area (e.g. `70%`) or an absolute value in points (e.g. `1200`)
+
+--height <size>::
+Set the window height.
+`<size>` is either a percentage of the visible monitor area (e.g. `80%`) or an absolute value in points (e.g. `900`)
+
+--window-id <window-id>::
+include::./util/window-id-flag-desc.adoc[]
+
+// end::body[]
+
+// =========================================================== Footer
+include::util/man-footer.adoc[]

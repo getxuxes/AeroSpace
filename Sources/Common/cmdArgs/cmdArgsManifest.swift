@@ -2,6 +2,7 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
     // Sorted
 
     case balanceSizes = "balance-sizes"
+    case centerFloating = "center-floating"
     case close
     case closeAllWindowsButCurrent = "close-all-windows-but-current"
     case config
@@ -58,6 +59,8 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
         switch kind {
             case .balanceSizes:
                 result[kind.rawValue] = SubCommandParser(BalanceSizesCmdArgs.init)
+            case .centerFloating:
+                result[kind.rawValue] = SubCommandParser(CenterFloatingCmdArgs.init)
             case .close:
                 result[kind.rawValue] = SubCommandParser(CloseCmdArgs.init)
             case .closeAllWindowsButCurrent:

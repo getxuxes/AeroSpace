@@ -10,6 +10,8 @@ aerospace -h;
 
     balance-sizes [--workspace <workspace>]
 
+    | center-floating [--window-id <window_id>|--width <number>|--height <number>]...
+
     | close [--quit-if-last-window|--window-id <window_id>]...
 
     | close-all-windows-but-current [--quit-if-last-window]

@@ -424,6 +424,14 @@ The floating window parent container is determined as the smallest tiling contai
 
 This technique eliminates the need for an additional binding for focusing floating windows.
 
+Use xref:commands.adoc#center-floating[center-floating] to center a floating window on its monitor and optionally size it relative to the monitor:
+
+[source,toml]
+----
+[mode.main.binding]
+alt-shift-f = 'layout floating; center-floating --width 70% --height 80%'
+----
+
 [#animations]
 === Animations (experimental)
 

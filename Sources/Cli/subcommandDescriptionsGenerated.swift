@@ -3,6 +3,7 @@
 
 let subcommandDescriptions = [
     ["  balance-sizes", "Balance sizes of all windows in the current workspace"],
+    ["  center-floating", "Center the floating window on its monitor, optionally resizing it"],
     ["  close-all-windows-but-current", "On the focused workspace, close all windows but current"],
     ["  close", "Close the focused window"],
     ["  config", "Query AeroSpace config options"],
