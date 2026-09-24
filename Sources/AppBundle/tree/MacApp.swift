@@ -164,14 +164,20 @@ final class MacApp: AbstractApp {
 
     /// Writes a frame of an animation. Unlike setAxFrame, a queued write is never cancelled: the app's AX thread may be
     /// busy with another window of the app for longer than a frame, and cancelling would starve this window until the
-    /// animation ends. Instead, the queued write takes the latest frame when it runs
-    func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?) {
+    /// animation ends. Instead, the queued write takes the latest frame when it runs.
+    /// `positionFirst`: see shrinksAtMonitorEdge
+    func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, positionFirst: Bool) {
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        guard animationFrames.put(windowId, topLeft, size) else { return } // Already queued
+        guard animationFrames.put(windowId, topLeft, size, positionFirst) else { return } // Already queued
         let job = withWindowAsync(windowId, .nonCancellable) { [axApp, animationFrames] window, job in
             guard let frame = animationFrames.take(windowId) else { return }
             try disableAnimations(app: axApp.threadGuarded, job) {
-                try setFrame(window, frame.topLeft, frame.size, job)
+                if frame.positionFirst {
+                    window.set(Ax.topLeftCornerAttr, frame.topLeft)
+                    if let size = frame.size { window.set(Ax.sizeAttr, size) }
+                } else {
+                    try setFrame(window, frame.topLeft, frame.size, job)
+                }
             }
         }
         if job.isCancelled { _ = animationFrames.take(windowId) } // The app is gone
@@ -439,19 +445,20 @@ extension [UInt32: AxWindow] {
 /// The latest animation frame of each window. Put on the main thread, taken on the app's AX thread
 private final class AnimationFrames: Sendable {
     private let lock = NSLock()
-    nonisolated(unsafe) private var frames: [UInt32: (topLeft: CGPoint, size: CGSize?)] = [:]
+    typealias Frame = (topLeft: CGPoint, size: CGSize?, positionFirst: Bool)
+    nonisolated(unsafe) private var frames: [UInt32: Frame] = [:]
 
     /// Returns false if a write of the window is already queued. That write will take this frame
-    func put(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?) -> Bool {
+    func put(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, _ positionFirst: Bool) -> Bool {
         lock.withLock {
             let queued = unsafe frames[windowId]
             // nil size means "unchanged since the last frame". Don't lose the size of a frame that wasn't written yet
-            unsafe frames[windowId] = (topLeft, size ?? queued?.size)
+            unsafe frames[windowId] = (topLeft, size ?? queued?.size, positionFirst)
             return queued == nil
         }
     }
 
-    func take(_ windowId: UInt32) -> (topLeft: CGPoint, size: CGSize?)? {
+    func take(_ windowId: UInt32) -> Frame? {
         lock.withLock { unsafe frames.removeValue(forKey: windowId) }
     }
 }

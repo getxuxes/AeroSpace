@@ -48,6 +48,25 @@ final class WindowAnimatorTest: XCTestCase {
         assertEquals(limit(right, left), [nil, nil])
     }
 
+    func testShrinksAtMonitorEdge() {
+        let full = Rect(topLeftX: 1000, topLeftY: 0, width: 1000, height: 1000)
+        let right = Rect(topLeftX: 1500, topLeftY: 0, width: 500, height: 1000)
+        // The right edge stays at the outer edge: move first, then resize
+        XCTAssertTrue(shrinksAtMonitorEdge(from: full, to: right, monitors: monitors, separateSpaces: false))
+        // Next to another monitor: only with separate Spaces
+        let leftFull = Rect(topLeftX: 0, topLeftY: 0, width: 1000, height: 1000)
+        let leftRight = Rect(topLeftX: 500, topLeftY: 0, width: 500, height: 1000)
+        XCTAssertTrue(shrinksAtMonitorEdge(from: leftFull, to: leftRight, monitors: monitors, separateSpaces: true))
+        XCTAssertFalse(shrinksAtMonitorEdge(from: leftFull, to: leftRight, monitors: monitors, separateSpaces: false))
+        // The right edge is inside the monitor (a tile in the middle): unchanged order
+        XCTAssertFalse(shrinksAtMonitorEdge(from: full, to: Rect(topLeftX: 1250, topLeftY: 0, width: 500, height: 1000), monitors: monitors, separateSpaces: true))
+        // Growing, or shrinking from the right: unchanged order
+        XCTAssertFalse(shrinksAtMonitorEdge(from: right, to: full, monitors: monitors, separateSpaces: true))
+        XCTAssertFalse(shrinksAtMonitorEdge(from: full, to: Rect(topLeftX: 1000, topLeftY: 0, width: 500, height: 1000), monitors: monitors, separateSpaces: true))
+        // Vertical: shrinking from the top at the bottom edge
+        XCTAssertTrue(shrinksAtMonitorEdge(from: full, to: Rect(topLeftX: 1000, topLeftY: 500, width: 1000, height: 500), monitors: monitors, separateSpaces: false))
+    }
+
     func testStuckOutLength() {
         // Nothing beyond the edge: the final size right away, then no more resizes
         assertEquals(stuckOutLength(visible: 520, target: 1000, lastSent: 500, limit: .infinity), 1000)

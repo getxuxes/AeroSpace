@@ -83,6 +83,11 @@ The code relies on these facts; don't re-derive them.
      - Another monitor beyond the edge, without separate Spaces: no sticking out, because it would show on the other
        monitor.
   3. Interior edges between tiles don't need it: "resize first" only overshoots there, and doesn't uncover anything.
+- **Position first at the monitor edge** (`shrinksAtMonitorEdge`): a window that shrinks from the left (top) while its
+  right (bottom) edge stays at the edge of the monitor is moved first and resized second, on every frame. The move lands
+  first, so the window sticks out by one frame's distance instead of pulling its far edge back. On `main` that edge went
+  back 87–181pt when a window arrived on the left from the other monitor or from floating. The window still resizes on
+  every frame, like the others. The same rule about the other monitor applies (`stickOutLimit`).
 - **Latest-frame mailbox** (`MacApp.setAxFrameAnimated`): animation writes are never cancelled. Previously, every frame
   cancelled the window's pending job. When the app's AX thread was busy with another window (e.g. a Ghostty window
   resizing to floating), the job never started, and the window jumped at the end of the animation, uncovering up to
@@ -90,8 +95,12 @@ The code relies on these facts; don't re-derive them.
 
 ## Tried and rejected
 
-- **Position first for windows that shrink from the left.** Their left edge ran ahead of the window that was coming in,
-  which uncovered up to 469pt when a floating window went back to the leftmost tile.
+- **Position first for every window that shrinks from the left.** The middle tile's left edge ran ahead of the window
+  that was coming in, which uncovered up to 469pt when a floating window went back to the leftmost tile. Only the window
+  at the monitor edge gets the new order now.
+- **Keeping the size of a shrinking window and resizing at the end.** No gap, but the content slides off the screen
+  instead of re-laying out. The user found it worse.
+- **Skipping the second resize (size, pos, size) on in-between frames** to lighten slow apps. No measurable difference.
 - **Sending the position one frame after the size ("pipelined").** At the screen edge the resize gets trimmed.
 - **Asking the app for a size a few ms ahead, and ease-in-out.** They flicker, and don't help.
 - **A cover window behind the animated windows.** Not tried: its color can't match the window without capturing the
@@ -102,3 +111,5 @@ The code relies on these facts; don't re-derive them.
 - The 3pt push can be visible for a frame on the moving edge ("looks a bit odd"). A cleaner way to get the window
   sticking out without the push is still open.
 - Apps that resize slowly (Ghostty) update each window every 3–4 frames when several of their windows animate at once.
+  A gap then opens between a lagging window and a neighbour that follows the curve on time (e.g. 100–350pt between two
+  tiles when a floating Ghostty goes back to tiling next to another Ghostty). `main` has it too, and worse.

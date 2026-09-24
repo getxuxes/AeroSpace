@@ -36,6 +36,12 @@ final class WindowAnimator {
                 monitors: monitorInfos.map(\.rect),
                 separateSpaces: NSScreen.screensHaveSeparateSpaces,
             ),
+            positionFirst: shrinksAtMonitorEdge(
+                from: from,
+                to: target,
+                monitors: monitorInfos.map(\.rect),
+                separateSpaces: NSScreen.screensHaveSeparateSpaces,
+            ),
         )
         tick()
         startTickingIfNeeded()
@@ -91,7 +97,7 @@ final class WindowAnimator {
             // Resizing is expensive for apps (they have to re-layout). Don't resize if the size barely changed
             let sizeChanged = abs(sizeToSend.width - animation.lastSentSize.width) >= 1 || abs(sizeToSend.height - animation.lastSentSize.height) >= 1
             let size: CGSize? = isFinished || sizeChanged ? sizeToSend : nil
-            animation.window.macApp.setAxFrameAnimated(windowId, frame.topLeftCorner, size)
+            animation.window.macApp.setAxFrameAnimated(windowId, frame.topLeftCorner, size, positionFirst: animation.positionFirst)
             if isFinished {
                 animations.removeValue(forKey: windowId)
             } else if let size {
@@ -118,6 +124,7 @@ private struct FrameAnimation {
     let duration: CFTimeInterval
     var lastSentSize: CGSize
     let stickOutLimit: (x: CGFloat?, y: CGFloat?)
+    let positionFirst: Bool
     var isSetUp = false
 
     var sticksOut: Bool { stickOutLimit.x != nil || stickOutLimit.y != nil }
@@ -157,13 +164,8 @@ private struct FrameAnimation {
 /// - Less than 2 if another monitor is beyond the edge and monitors have separate Spaces. macOS doesn't show the part
 ///   that sticks out, but the window jumps to the other monitor if most of it is there
 func stickOutLimit(from: Rect, to: Rect, monitors: [Rect], separateSpaces: Bool) -> (x: CGFloat?, y: CGFloat?) {
-    let ownMonitor = monitors.first { $0.contains(to.center) }
     func limit(_ stickingOut: Rect) -> CGFloat? {
-        let covered = monitors.filter { $0.overlaps(stickingOut) }
-        if covered.isEmpty { return .infinity }
-        if ownMonitor.map({ $0.overlaps(stickingOut) }) != false { return nil }
-        // Leave room for the resize that reaches the screen a frame before the move
-        return separateSpaces ? 1.7 : nil
+        stickOutLimit(of: stickingOut, ownMonitor: monitors.first { $0.contains(to.center) }, monitors, separateSpaces)
     }
     let minY = min(from.minY, to.minY)
     let minX = min(from.minX, to.minX)
@@ -187,6 +189,29 @@ func stickOutLimit(from: Rect, to: Rect, monitors: [Rect], separateSpaces: Bool)
         ))
         : nil
     return (x, y)
+}
+
+/// A window that shrinks from the left (top) while its right (bottom) edge stays at the edge of the monitor. The resize
+/// reaches the screen before the move, so that edge would go back for a frame. Moving first makes the window stick out
+/// by the distance of one frame instead. The window still resizes on every frame, like the others
+func shrinksAtMonitorEdge(from: Rect, to: Rect, monitors: [Rect], separateSpaces: Bool) -> Bool {
+    let ownMonitor = monitors.first { $0.contains(to.center) }
+    // Where the window is after the move and before the resize
+    let movedFirst = Rect(topLeftX: to.minX, topLeftY: to.minY, width: from.width, height: from.height)
+    let x = to.minX > from.minX + 0.5 && to.width < from.width - 0.5 &&
+        stickOutLimit(of: movedFirst.copy(\.topLeftX, to.maxX).copy(\.width, movedFirst.maxX - to.maxX), ownMonitor: ownMonitor, monitors, separateSpaces) != nil
+    let y = to.minY > from.minY + 0.5 && to.height < from.height - 0.5 &&
+        stickOutLimit(of: movedFirst.copy(\.topLeftY, to.maxY).copy(\.height, movedFirst.maxY - to.maxY), ownMonitor: ownMonitor, monitors, separateSpaces) != nil
+    return x || y
+}
+
+/// See stickOutLimit(from:to:monitors:separateSpaces:)
+private func stickOutLimit(of stickingOut: Rect, ownMonitor: Rect?, _ monitors: [Rect], _ separateSpaces: Bool) -> CGFloat? {
+    let covered = monitors.filter { $0.overlaps(stickingOut) }
+    if covered.isEmpty { return .infinity }
+    if ownMonitor.map({ $0.overlaps(stickingOut) }) != false { return nil }
+    // Leave room for the resize that reaches the screen a frame before the move
+    return separateSpaces ? 1.7 : nil
 }
 
 /// Resizes only when the part that sticks out gets short: the app redraws on every resize
