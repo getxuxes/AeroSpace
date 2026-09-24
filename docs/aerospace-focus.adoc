@@ -44,7 +44,8 @@ include::util/conditional-options-header.adoc[]
 --boundaries <boundary>::
 Defines focus boundaries. +
 `<boundary>` possible values: `(workspace|all-monitors-outer-frame)`. +
-The default is: `workspace`
+The default is: `workspace` +
+With `all-monitors-outer-frame`, crossing to another monitor focuses the window closest to the crossed edge.
 
 --boundaries-action <action>::
 Defines the behavior when requested to cross the `<boundary>`. +
