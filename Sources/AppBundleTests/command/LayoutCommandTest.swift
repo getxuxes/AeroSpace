@@ -384,4 +384,36 @@ final class LayoutCommandTest: XCTestCase {
             .h_tiles([.window(1), .v_tiles([.window(2), .window(3)])]),
         )
     }
+
+    func testFloatingAndBackToTilingKeepsSize() async {
+        let root = Workspace.get(byName: name).rootTilingContainer
+        let window1 = TestWindow.new(id: 1, parent: root, adaptiveWeight: 600)
+        let window2 = TestWindow.new(id: 2, parent: root, adaptiveWeight: 1320)
+        for _ in 1 ... 3 {
+            assertEquals(window1.focusWindow(), true)
+            await parseCommand("layout floating").cmdOrDie.run(.defaultEnv, .emptyStdin)
+            window2.setWeight(.h, 1920) // The layout gives the freed space to the remaining window
+
+            await parseCommand("layout --window-id 1 tiling").cmdOrDie.run(.defaultEnv, .emptyStdin)
+            assertEquals(root.layoutDescription, .h_tiles([.window(1), .window(2)]))
+            assertEquals(window1.getWeight(.h), 600)
+            assertEquals(window2.getWeight(.h), 1320)
+        }
+    }
+
+    func testFloatingAndBackToTilingWithNewSiblingTakesEqualShare() async {
+        let root = Workspace.get(byName: name).rootTilingContainer
+        let window1 = TestWindow.new(id: 1, parent: root, adaptiveWeight: 960)
+        let window2 = TestWindow.new(id: 2, parent: root, adaptiveWeight: 960)
+        assertEquals(window1.focusWindow(), true)
+        await parseCommand("layout floating").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        window2.setWeight(.h, 960)
+        let window3 = TestWindow.new(id: 3, parent: root, adaptiveWeight: 960)
+
+        await parseCommand("layout --window-id 1 tiling").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        assertEquals(root.layoutDescription, .h_tiles([.window(1), .window(2), .window(3)]))
+        assertEquals(window1.getWeight(.h).rounded(), 640)
+        assertEquals(window2.getWeight(.h).rounded(), 640)
+        assertEquals(window3.getWeight(.h).rounded(), 640)
+    }
 }

@@ -6,7 +6,10 @@ import Common
 struct PrevTilingPosition {
     weak var parent: TilingContainer?
     let index: Int
-    let weight: CGFloat
+    /// The share of the parent container that the window occupied. Weights are absolute (points), so they can't be
+    /// restored as is: the siblings grow to fill the space while the window is floating
+    let fraction: CGFloat
+    let siblingsCount: Int
     let orientation: Orientation
     let layout: Layout
     weak var prevSibling: TreeNode?
@@ -17,10 +20,12 @@ extension Window {
     @MainActor
     func rememberTilingPosition() {
         guard let parent = parent as? TilingContainer, let index = ownIndex else { return }
+        let total = CGFloat(parent.children.sumOfDouble { $0.getWeight(parent.orientation) })
         prevTilingPosition = PrevTilingPosition(
             parent: parent,
             index: index,
-            weight: getWeight(parent.orientation),
+            fraction: total > 0 ? getWeight(parent.orientation) / total : 0,
+            siblingsCount: parent.children.count - 1,
             orientation: parent.orientation,
             layout: parent.layout,
             prevSibling: parent.children.getOrNil(atIndex: index - 1),
@@ -43,7 +48,9 @@ extension Window {
             } else {
                 min(pos.index, parent.children.count)
             }
-            bind(to: parent, adaptiveWeight: pos.weight, index: index)
+            // If the container changed while the window was floating, the previous share doesn't make sense anymore
+            let isSameContainer = parent.orientation == pos.orientation && parent.children.count == pos.siblingsCount
+            bind(to: parent, index: index, fraction: isSameContainer ? pos.fraction : nil)
             return true
         }
 
@@ -59,8 +66,9 @@ extension Window {
         }
         guard let anchorParent = anchor.parent as? TilingContainer, let anchorIndex = anchor.ownIndex else { return false }
         if anchorParent.orientation == pos.orientation {
-            bind(to: anchorParent, adaptiveWeight: WEIGHT_AUTO, index: anchorIndex + (isAfterAnchor ? 1 : 0))
+            bind(to: anchorParent, index: anchorIndex + (isAfterAnchor ? 1 : 0), fraction: nil)
         } else {
+            let anchorSize = anchor.lastAppliedLayoutVirtualRect?.getDimension(pos.orientation)
             let binding = anchor.unbindFromParent()
             let container = TilingContainer(
                 parent: binding.parent,
@@ -69,9 +77,26 @@ extension Window {
                 pos.layout,
                 index: binding.index,
             )
-            anchor.bind(to: container, adaptiveWeight: WEIGHT_AUTO, index: 0)
-            bind(to: container, adaptiveWeight: WEIGHT_AUTO, index: isAfterAnchor ? 1 : 0)
+            anchor.bind(to: container, adaptiveWeight: anchorSize ?? 1, index: 0)
+            bind(to: container, index: isAfterAnchor ? 1 : 0, fraction: pos.siblingsCount == 1 ? pos.fraction : nil)
         }
         return true
+    }
+
+    /// Binds the window so that it occupies `fraction` of the container (or an equal share if nil).
+    /// The siblings shrink proportionally, so the sum of weights stays the same
+    @MainActor
+    private func bind(to parent: TilingContainer, index: Int, fraction: CGFloat?) {
+        let siblings = parent.children
+        let total = CGFloat(siblings.sumOfDouble { $0.getWeight(parent.orientation) })
+        guard total > 0 else {
+            bind(to: parent, adaptiveWeight: WEIGHT_AUTO, index: index)
+            return
+        }
+        let fraction = (fraction ?? 1 / CGFloat(siblings.count + 1)).coerce(in: 0.05 ... 0.95)
+        for sibling in siblings {
+            sibling.setWeight(parent.orientation, sibling.getWeight(parent.orientation) * (1 - fraction))
+        }
+        bind(to: parent, adaptiveWeight: total * fraction, index: index)
     }
 }
