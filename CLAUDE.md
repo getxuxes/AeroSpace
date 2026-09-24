@@ -29,6 +29,7 @@ Deeper background lives in `dev-docs/architecture.md` and `dev-docs/development.
 | `axDumps/` | Accessibility dumps of real apps, used by window-detection tests |
 | `xcode/` | Generated Xcode project (xcodegen). Only used by release builds |
 | `script/` | Helper scripts used by the top-level `*.sh` |
+| `dev-tools/animations/` | Tools that measure what the WindowServer shows during window animations and moves (no screen capture), and what the measurements showed |
 
 **Generated files:** don't edit `*Generated.swift` by hand. Regenerate them with `./generate.sh`.
 - `Sources/Common/cmdHelpGenerated.swift` is generated from `docs/aerospace-*.adoc`.
@@ -89,6 +90,18 @@ Take `echo` as the reference: `EchoCmdArgs.swift`, `EchoCommand.swift`, `EchoCom
    - Cover parsing with `testParseSingleCommandSucc` / `testParseCommandFail`.
    - Cover behavior with `setUpWorkspacesForTests()` and test windows.
 8. **Flags:** decide whether `--window-id` and/or `--workspace` make sense for the command.
+
+## Window animations and window behavior
+
+`WindowAnimator.swift` animates windows by writing frames over AX, and the WindowServer applies moves and resizes at
+different times. Before you change animations, or debug anything visual (gaps, flicker, windows that jump), read
+`dev-tools/animations/README.md`.
+- It records the facts already measured (why a window that grows to the left uncovers what is behind it, when macOS
+  trims a resize, separate Spaces, the 3pt push, the per-app AX thread). It also lists what was tried and rejected.
+- Measure with its tools (`trace`, `probe`), not by eye.
+- Compare against `main` built the same way, with exactly one AeroSpace server running.
+- Test the user's real key bindings (their commands run in one batch), vertical and horizontal layouts, and moves
+  between monitors.
 
 ## Conventions and gotchas
 

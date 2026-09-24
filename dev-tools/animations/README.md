@@ -1,0 +1,104 @@
+# Measuring window animations
+
+Tools for measuring what the WindowServer shows while AeroSpace animates windows (`[animations]` in the config,
+`Sources/AppBundle/layout/WindowAnimator.swift`).
+
+They don't capture the screen and need no Screen Recording permission. They read window bounds with
+`CGWindowListCreateDescriptionFromArray`, which reflects the WindowServer's state. They time the samples against the
+vsync with `CVDisplayLink`. `probe` also writes frames over the Accessibility API, so the terminal that runs it needs
+the Accessibility permission.
+
+Judging by eye doesn't work: the artifacts last a frame or two, and they vary from run to run. Measure, repeat each case
+at least 3 times, and compare against a baseline built the same way.
+
+## Tools
+
+```sh
+dev-tools/animations/build.sh     # compiles into dev-tools/animations/.bin (git-ignored)
+```
+
+| Tool | What it does |
+|---|---|
+| `.bin/trace <ids> <seconds> [h\|v]` | Passive observer. It prints every frame in which a window changed, the ranges of the windows along the axis, and the uncovered ranges (`GAPS`). Only tiles count as covering; `F` marks a floating window. It is safe to run against a real AeroSpace session. |
+| `summarize.sh <trace output>` | `gapFrames>=10pt=N worst=Mpt` for one trace |
+| `scenario-example.sh <cli> <label>` | Traces real actions: a key binding sent as a key event, and moves between monitors. Adapt the window ids at the top |
+| `.bin/probe <id> <experiment> [screen]` | Writes frames over AX in a controlled way and samples the bounds every ~0.2 ms. It fights AeroSpace, so run `aerospace enable off` first and `aerospace enable on` afterwards. The experiments are listed below |
+
+Window ids come from `aerospace list-windows --all`.
+
+## How to compare two builds
+
+1. Build both the same way, because debug and release timings differ. To get a debug build of `main`, use a worktree:
+   `git worktree add ../aerospace-main-wt main && (cd ../aerospace-main-wt && ./build-debug.sh)`.
+2. Run **exactly one** server. Quit the installed app (`osascript -e 'quit app "AeroSpace"'`), stop debug servers by
+   PID, and check with `ps -axo pid,command | grep -i aerospaceapp`. Two servers fight over the windows, and the
+   measurement becomes garbage.
+3. Put the windows in the same tree before every run: `flatten-workspace-tree`, then `move --window-id …` until the
+   order is right.
+4. Reproduce what the user actually does. A key binding runs its commands in one batch
+   (`layout floating && center-floating`), which is not the same as separate CLI calls. Send the binding as a key event
+   (`osascript -e 'tell application "System Events" to key code 49 using {option down, shift down}'`) right after
+   `focus --window-id`, because focus may have moved. Remember moves between monitors.
+5. Compare summaries across ≥3 runs. Then read the raw trace of the interesting case. A window that jumps (for example
+   `203:[3413..]` followed directly by `203:[2560..]`) or an edge that goes backwards is what the eye sees.
+
+The `GAPS` include space that an animation uncovers on purpose, for example where a window left. Only a difference
+against the baseline, or a far edge that goes backwards, is an artifact.
+
+## What the measurements showed
+
+The code relies on these facts; don't re-derive them.
+
+- **There is no atomic frame write.** `AXPosition` and `AXSize` are separate writes. `AXFrame` exists, but no app
+  lets you write it (Ghostty, Zed, Helium, Finder).
+- **Moves land before resizes.** A move reaches the WindowServer in about 1 vsync. A resize goes through the app's
+  Core Animation commit and lands 1–3 vsyncs later (probe `E2`). A window growing to the left or up therefore shows,
+  for a frame, its new position with its old size. Its right (bottom) edge goes back and uncovers what is behind it:
+  59pt in Ghostty and 322pt in Zed at 2560pt wide on a 144Hz monitor. Helium shows none.
+- **When macOS trims a resize.** macOS trims a resize only if the window fits entirely on its monitor and the new size
+  would stick out of it. That includes the edge between two monitors. If the window already sticks out, even by 1pt,
+  the resize is not trimmed (probe `E1`, `E1n`, `E1i`). A 0.5pt push rounds to 0 and gets trimmed. Moves are never
+  trimmed. This rule is why "resize first, then move" leaves the window short at the screen edge.
+- **Apps round frames to whole points.** AeroSpace's rects are fractional (4266.67 + 853.33), and the app turns them
+  into 4266 + 853 = 5119. A 1pt push can therefore leave the window exactly at the edge, where it still gets trimmed.
+  3pt is enough.
+- **With "Displays have separate Spaces"**, macOS doesn't draw the part of a window that sticks into another monitor.
+  Once most of the window is on the other monitor, the window jumps there (probe `VIS`, confirmed by eye). A command
+  line tool must call `_ = NSApplication.shared` before `NSScreen.screensHaveSeparateSpaces`, otherwise it always
+  gets `false`.
+- **Coalescing doesn't make it atomic.** Sending the position and size writes from two threads so the app handles
+  them in one run loop turn doesn't make them land together (probe `E3`, 2/20).
+- **Each app has one AX thread in AeroSpace.** Ghostty needs ~7–10 ms per resize. When two windows of one app animate
+  at once, they share that thread.
+
+## How the animator uses them
+
+- **Sticking out** (`stickOutLimit`, `stuckOutLength`, `MacApp.setAxFrameStickingOut`): a window that grows to the
+  left (up) while its right (bottom) edge is at the edge of a monitor becomes bigger than it looks.
+  1. It is pushed 3pt past the edge, gets its size, and is moved back, all in one non-cancellable AX job.
+  2. From then on it mostly moves, and moving doesn't need a redraw, so the far edge stays in place.
+     - Nothing beyond the edge: the window takes its final size right away (limit `.infinity`).
+     - Another monitor beyond the edge, with separate Spaces: the window is at most 1.7× its visible length, so that
+       most of it stays on its monitor. It resizes again when the margin drops below 1.4×.
+     - Another monitor beyond the edge, without separate Spaces: no sticking out, because it would show on the other
+       monitor.
+  3. Interior edges between tiles don't need it: "resize first" only overshoots there, and doesn't uncover anything.
+- **Latest-frame mailbox** (`MacApp.setAxFrameAnimated`): animation writes are never cancelled. Previously, every frame
+  cancelled the window's pending job. When the app's AX thread was busy with another window (e.g. a Ghostty window
+  resizing to floating), the job never started, and the window jumped at the end of the animation, uncovering up to
+  ~850pt. Now a queued job takes the latest frame when it runs.
+
+## Tried and rejected
+
+- **Position first for windows that shrink from the left.** Their left edge ran ahead of the window that was coming in,
+  which uncovered up to 469pt when a floating window went back to the leftmost tile.
+- **Sending the position one frame after the size ("pipelined").** At the screen edge the resize gets trimmed.
+- **Asking the app for a size a few ms ahead, and ease-in-out.** They flicker, and don't help.
+- **A cover window behind the animated windows.** Not tried: its color can't match the window without capturing the
+  screen.
+
+## Open issues
+
+- The 3pt push can be visible for a frame on the moving edge ("looks a bit odd"). A cleaner way to get the window
+  sticking out without the push is still open.
+- Apps that resize slowly (Ghostty) update each window every 3–4 frames when several of their windows animate at once.
