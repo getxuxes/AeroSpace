@@ -74,7 +74,10 @@ extension Window {
         let workspace = context.workspace
         let windowRect = try await getAxRect(.cancellable) // Probably not idempotent
         let currentMonitor = windowRect?.center.monitorApproximation
-        if let currentMonitor, let windowRect, workspace != currentMonitor.activeWorkspace {
+        // An animating window is already on its way. Moving it here would cancel the animation
+        if let currentMonitor, let windowRect, workspace != currentMonitor.activeWorkspace,
+           WindowAnimator.shared.targetFrame(windowId) == nil
+        {
             let windowTopLeftCorner = windowRect.topLeftCorner
             let xProportion = (windowTopLeftCorner.x - currentMonitor.visibleRect.topLeftX) / currentMonitor.visibleRect.width
             let yProportion = (windowTopLeftCorner.y - currentMonitor.visibleRect.topLeftY) / currentMonitor.visibleRect.height

@@ -35,8 +35,8 @@ struct MoveCommand: Command {
                 } else {
                     return moveOut(tilingWindow: currentWindow, direction: direction, io, args, env)
                 }
-            case .floatingWindowsContainer: // floating window
-                return .fail(io.err("moving floating windows isn't yet supported")) // todo
+            case .floatingWindowsContainer:
+                return await moveFloatingWindowToMonitor(currentWindow, direction, io, args)
             case .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer, .macosHiddenAppsWindowsContainer:
                 return .fail(io.err(moveOutMacosUnconventionalWindow))
             case .macosPopupWindowsContainer:
@@ -91,6 +91,63 @@ struct MoveCommand: Command {
         case .createImplicitContainer:
             createImplicitContainerAndMoveWindow(window, workspace, direction)
             return .succ
+    }
+}
+
+/// Moves the floating window to the neighbor monitor, keeping its relative position and size
+@MainActor private func moveFloatingWindowToMonitor(
+    _ window: Window,
+    _ direction: CardinalDirection,
+    _ io: CmdIo,
+    _ args: MoveCmdArgs,
+) async -> BinaryExitCode {
+    guard args.boundaries == .allMonitorsOuterFrame else {
+        return .fail(io.err("moving floating windows is only supported with --boundaries all-monitors-outer-frame"))
+    }
+    guard let sourceMonitor = window.nodeMonitor,
+          let (monitors, index) = sourceMonitor.findRelativeMonitor(inDirection: direction)
+    else {
+        return .fail(io.err("Should never happen. Can't find the current monitor"))
+    }
+    guard let targetMonitor = monitors.getOrNil(atIndex: index) else {
+        return switch args.boundariesAction {
+            case .fail: .fail
+            case .stop, .createImplicitContainer: .succ
+        }
+    }
+    // If the window is still animating, map its final frame, not the intermediate one
+    let axRect = WindowAnimator.shared.targetFrame(window.windowId) == nil ? try? await window.getAxRect(.nonCancellable) : nil
+    let prevRect = WindowAnimator.shared.targetFrame(window.windowId) ?? axRect
+    let result = moveWindowToWorkspace(
+        window,
+        targetMonitor.activeWorkspace,
+        io,
+        focusFollowsWindow: focus.windowOrNil == window,
+        failIfNoop: false,
+    )
+    if let prevRect {
+        let target = prevRect.mapped(
+            from: sourceMonitor.visibleRectPaddedByOuterGaps,
+            to: targetMonitor.visibleRectPaddedByOuterGaps,
+        )
+        WindowAnimator.shared.setFrame(window, from: axRect ?? prevRect, to: target)
+    }
+    return result
+}
+
+extension Rect {
+    /// Keeps the relative position and size inside the areas
+    fileprivate func mapped(from source: Rect, to target: Rect) -> Rect {
+        let scaleX = source.width > 0 ? target.width / source.width : 1
+        let scaleY = source.height > 0 ? target.height / source.height : 1
+        let newWidth = min(width * scaleX, target.width)
+        let newHeight = min(height * scaleY, target.height)
+        return Rect(
+            topLeftX: (target.minX + (topLeftX - source.minX) * scaleX).coerce(in: target.minX ... target.maxX - newWidth),
+            topLeftY: (target.minY + (topLeftY - source.minY) * scaleY).coerce(in: target.minY ... target.maxY - newHeight),
+            width: newWidth,
+            height: newHeight,
+        )
     }
 }
 

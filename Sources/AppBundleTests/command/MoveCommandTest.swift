@@ -11,6 +11,29 @@ final class MoveCommandTest: XCTestCase {
         assertNil(parseCommand("move --fail-if-macos-native-fullscreen --window-id 1 right").errorOrNil)
     }
 
+    func testMoveFloatingWindowRequiresAllMonitorsOuterFrame() async {
+        let workspace = Workspace.get(byName: name)
+        assertEquals(TestWindow.new(id: 1, parent: workspace.floatingWindowsContainer).focusWindow(), true)
+
+        let result = await parseCommand("move left").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        assertEquals(result.exitCode.rawValue, 2)
+        assertEquals(result.stderr, ["moving floating windows is only supported with --boundaries all-monitors-outer-frame"])
+    }
+
+    func testMoveFloatingWindowNoMonitorInDirection() async throws {
+        let workspace = Workspace.get(byName: name)
+        let window = TestWindow.new(id: 1, parent: workspace.floatingWindowsContainer, rect: Rect(topLeftX: 10, topLeftY: 20, width: 300, height: 200))
+        assertEquals(window.focusWindow(), true)
+
+        let stop = await parseCommand("move --boundaries all-monitors-outer-frame --boundaries-action stop left").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        assertEquals(stop.exitCode.rawValue, 0)
+        let fail = await parseCommand("move --boundaries all-monitors-outer-frame --boundaries-action fail left").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        assertEquals(fail.exitCode.rawValue, 2)
+
+        assertEquals(window.nodeWorkspace, workspace)
+        assertEquals(try await window.getAxRect(.nonCancellable)?.topLeftCorner, CGPoint(x: 10, y: 20))
+    }
+
     func testFailIfFullscreen() async {
         let root = Workspace.get(byName: name).rootTilingContainer.apply {
             let window = TestWindow.new(id: 1, parent: $0)

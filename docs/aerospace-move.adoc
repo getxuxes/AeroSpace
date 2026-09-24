@@ -21,6 +21,9 @@ aerospace move [-h|--help] [--window-id <window-id>] [--boundaries <boundary>]
 // tag::body[]
 Move the focused window in the given direction. See the "Examples" section for more details.
 
+Floating windows can be moved only with `--boundaries all-monitors-outer-frame`.
+The floating window is moved to the monitor in the given direction, keeping its relative position and size.
+
 Deprecated name: `move-through`
 
 // =========================================================== Options

@@ -35,6 +35,11 @@ final class WindowAnimator {
         startTickingIfNeeded()
     }
 
+    /// The frame where the running animation ends, nil if the window isn't animating
+    func targetFrame(_ windowId: UInt32) -> Rect? {
+        animations[windowId]?.to
+    }
+
     /// Called when somebody else sets the window frame directly. The last writer wins
     func cancel(_ windowId: UInt32) {
         animations.removeValue(forKey: windowId)
