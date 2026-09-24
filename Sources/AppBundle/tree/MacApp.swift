@@ -17,6 +17,7 @@ final class MacApp: AbstractApp {
     var lastNativeFocusedWindowId: UInt32? = nil
     private var thread: Thread?
     private var setFrameJobs: [UInt32: RunLoopJob] = [:]
+    private let animationFrames = AnimationFrames()
     @MainActor private static var focusJob: RunLoopJob? = nil
 
     /*conforms*/ var name: String? { nsApp.localizedName }
@@ -157,6 +158,35 @@ final class MacApp: AbstractApp {
         setFrameJobs[windowId] = withWindowAsync(windowId, .cancellable) { [axApp] window, job in
             try disableAnimations(app: axApp.threadGuarded, job) {
                 try setFrame(window, topLeft, size, job)
+            }
+        }
+    }
+
+    /// Writes a frame of an animation. Unlike setAxFrame, a queued write is never cancelled: the app's AX thread may be
+    /// busy with another window of the app for longer than a frame, and cancelling would starve this window until the
+    /// animation ends. Instead, the queued write takes the latest frame when it runs
+    func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?) {
+        setFrameJobs.removeValue(forKey: windowId)?.cancel()
+        guard animationFrames.put(windowId, topLeft, size) else { return } // Already queued
+        let job = withWindowAsync(windowId, .nonCancellable) { [axApp, animationFrames] window, job in
+            guard let frame = animationFrames.take(windowId) else { return }
+            try disableAnimations(app: axApp.threadGuarded, job) {
+                try setFrame(window, frame.topLeft, frame.size, job)
+            }
+        }
+        if job.isCancelled { _ = animationFrames.take(windowId) } // The app is gone
+    }
+
+    /// macOS trims a resize that would push a window that fits on the screen out of it. It doesn't trim the resize of a
+    /// window that already sticks out. Push the window a few points past the edge first (to `pushedTo`), then resize and move it.
+    /// Non-cancellable: the next frame would cancel it halfway, and the window would never get its size
+    func setAxFrameStickingOut(_ windowId: UInt32, pushedTo: CGPoint, _ topLeft: CGPoint, _ size: CGSize) {
+        setFrameJobs.removeValue(forKey: windowId)?.cancel()
+        _ = withWindowAsync(windowId, .nonCancellable) { [axApp] window, job in
+            try disableAnimations(app: axApp.threadGuarded, job) {
+                window.set(Ax.topLeftCornerAttr, pushedTo)
+                window.set(Ax.sizeAttr, size)
+                window.set(Ax.topLeftCornerAttr, topLeft)
             }
         }
     }
@@ -403,6 +433,26 @@ extension [UInt32: AxWindow] {
         } else {
             return nil
         }
+    }
+}
+
+/// The latest animation frame of each window. Put on the main thread, taken on the app's AX thread
+private final class AnimationFrames: Sendable {
+    private let lock = NSLock()
+    nonisolated(unsafe) private var frames: [UInt32: (topLeft: CGPoint, size: CGSize?)] = [:]
+
+    /// Returns false if a write of the window is already queued. That write will take this frame
+    func put(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?) -> Bool {
+        lock.withLock {
+            let queued = unsafe frames[windowId]
+            // nil size means "unchanged since the last frame". Don't lose the size of a frame that wasn't written yet
+            unsafe frames[windowId] = (topLeft, size ?? queued?.size)
+            return queued == nil
+        }
+    }
+
+    func take(_ windowId: UInt32) -> (topLeft: CGPoint, size: CGSize?)? {
+        lock.withLock { unsafe frames.removeValue(forKey: windowId) }
     }
 }
 
