@@ -59,12 +59,19 @@ enum GlobalObserver {
             //  The end of the callback calls refreshSession
             Task.startUnstructured { @MainActor in
                 guard let token: RunSessionGuard = .isServerEnabled else { return }
+                let droppedWindowId = currentlyManipulatedWithMouseWindowId
+                if let droppedWindowId {
+                    try await runLightSession(.globalObserverLeftMouseUp, token) {
+                        try await bindDroppedFloatingWindow(droppedWindowId)
+                    }
+                }
                 try await resetManipulatedWithMouseIfPossible()
                 let mouseLocation = mouseLocation
                 let clickedMonitor = mouseLocation.monitorApproximation
                 switch true {
-                    // Detect clicks on desktop of different monitors
-                    case clickedMonitor.visibleRect.contains(mouseLocation) && clickedMonitor.activeWorkspace != focus.workspace:
+                    // Detect clicks on desktop of different monitors. A window dropped near the monitor edge isn't such a click
+                    case droppedWindowId == nil && clickedMonitor.visibleRect.contains(mouseLocation) &&
+                    clickedMonitor.activeWorkspace != focus.workspace:
                         _ = try await runLightSession(.globalObserverLeftMouseUp, token) {
                             clickedMonitor.activeWorkspace.focusWorkspace()
                         }

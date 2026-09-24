@@ -23,7 +23,7 @@ extension TreeNode {
                 try await workspace.rootTilingContainer.layoutRecursive(point, width: width, height: height, virtual: virtual, context)
                 try await workspace.floatingWindowsContainer.layoutRecursive(point, width: width, height: height, virtual: virtual, context)
             case .floatingWindowsContainer(let container):
-                for window in container.children.filterIsInstance(of: Window.self) {
+                for window in container.children.filterIsInstance(of: Window.self) where window.windowId != currentlyManipulatedWithMouseWindowId {
                     window.lastAppliedLayoutPhysicalRect = nil
                     window.lastAppliedLayoutVirtualRect = nil
                     try await window.layoutFloatingWindow(context)

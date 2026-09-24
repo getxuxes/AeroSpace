@@ -28,7 +28,7 @@ private func moveWithMouse(_ window: Window) async throws { // todo cover with t
     resetClosedWindowsCache()
     switch window.windowParentCases {
         case .floatingWindowsContainer:
-            try await moveFloatingWindow(window)
+            moveFloatingWindow(window)
         case .macosFullscreenWindowsContainer, .macosMinimizedWindowsContainer, .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer:
             return // Unconventional windows can't be moved with mouse
         case .tilingContainer:
@@ -38,12 +38,25 @@ private func moveWithMouse(_ window: Window) async throws { // todo cover with t
 }
 
 @MainActor
-private func moveFloatingWindow(_ window: Window) async throws {
-    guard let targetWorkspace = try await window.getCenter(.cancellable)?.monitorApproximation.activeWorkspace else { return }
-    guard let parent = window.parent else { return }
-    if targetWorkspace != parent {
-        window.bindAsFloatingWindow(to: targetWorkspace)
-    }
+private func moveFloatingWindow(_ window: Window) {
+    // The window is bound to the new workspace only once it's dropped (see bindDroppedFloatingWindow). Rebinding it
+    // while it's dragged changes the focused workspace and monitor, which runs callbacks (e.g. move-mouse) and layouts
+    // in the middle of the drag. Meanwhile, layoutFloatingWindow must not move the window back to its old monitor
+    currentlyManipulatedWithMouseWindowId = window.windowId
+}
+
+/// Binds the dropped floating window to the workspace of the monitor where it ended up.
+/// The window center is used, the same way as in layoutFloatingWindow
+@MainActor
+func bindDroppedFloatingWindow(_ windowId: UInt32) async throws {
+    guard let window = Window.get(byId: windowId), window.isFloating,
+          let targetWorkspace = try await window.getCenter(.cancellable)?.monitorApproximation.activeWorkspace,
+          targetWorkspace != window.nodeWorkspace
+    else { return }
+    let wasFocused = focus.windowOrNil == window
+    window.bindAsFloatingWindow(to: targetWorkspace)
+    // Otherwise, the focus falls back to another window of the old workspace
+    if wasFocused { _ = window.focusWindow() }
 }
 
 @MainActor
@@ -63,11 +76,15 @@ private func moveTilingWindow(_ window: Window) {
         } else {
             0
         }
+        let wasFocused = focus.windowOrNil == window
         window.bind(
             to: swapTarget?.parent ?? targetWorkspace.rootTilingContainer,
             adaptiveWeight: WEIGHT_AUTO,
             index: index,
         )
+        // Otherwise, the focus falls back to another window of the old workspace. The dragged window loses the native
+        // focus, which stops the drag, and on-focus-changed callbacks (e.g. move-mouse) might warp the mouse
+        if wasFocused { _ = window.focusWindow() }
     } else if let swapTarget {
         swapWindows(mruDominant: window, swapTarget)
     }

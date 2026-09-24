@@ -6,6 +6,11 @@ struct MoveMouseCommand: Command {
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
     func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
+        // Moving the mouse in the middle of a drag breaks the drag. E.g. on-focus-changed callbacks run when the dragged
+        // window moves to a different monitor
+        if currentlyManipulatedWithMouseWindowId != nil {
+            return .succ(io.err("The mouse isn't moved while a window is moved or resized with the mouse"))
+        }
         let mouse = mouseLocation
         guard let target = args.resolveTargetOrReportError(env, io) else { return .fail }
         switch args.mouseTarget.val {
