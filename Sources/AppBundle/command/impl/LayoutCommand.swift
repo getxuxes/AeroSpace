@@ -63,7 +63,9 @@ struct LayoutCommand: Command {
                     case .tilingContainer:
                         return .succ // Nothing to do
                     case .floatingWindowsContainer(let container):
-                        window.lastFloatingSize = (try? await window.getAxSize(.nonCancellable)) ?? window.lastFloatingSize
+                        let floatingRect = try? await window.getAxRect(.nonCancellable)
+                        window.lastFloatingSize = floatingRect?.size ?? window.lastFloatingSize
+                        window.lastAppliedLayoutPhysicalRect = floatingRect // Animate from the floating position
                         guard let workspace = container.nodeWorkspace else { return .fail(io.err(bugPrompt())) }
                         if window.restoreTilingPosition(on: workspace) { return .succ }
                         do {
@@ -78,7 +80,14 @@ struct LayoutCommand: Command {
                 let workspace = target.workspace
                 window.rememberTilingPosition()
                 window.bindAsFloatingWindow(to: workspace)
-                if let size = window.lastFloatingSize { window.setAxFrame(nil, size) }
+                if let size = window.lastFloatingSize {
+                    if let prevRect = window.lastAppliedLayoutPhysicalRect {
+                        let target = Rect(topLeftX: prevRect.topLeftX, topLeftY: prevRect.topLeftY, width: size.width, height: size.height)
+                        WindowAnimator.shared.setFrame(window, from: prevRect, to: target)
+                    } else {
+                        window.setAxFrame(nil, size)
+                    }
+                }
                 return .succ
         }
     }

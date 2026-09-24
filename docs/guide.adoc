@@ -445,7 +445,8 @@ AeroSpace can animate tiled windows when the layout changes (`move`, `resize`, `
 ----
 
 Windows are moved step by step via the Accessibility API, so resizing heavy apps may stutter.
-Switching workspaces, floating windows and fullscreen windows are not animated.
+Switching between tiling and floating (`layout floating`, `layout tiling`) and `center-floating` are animated too.
+Switching workspaces, moving floating windows and fullscreen windows are not animated.
 
 [#emulation-of-virtual-workspaces]
 == Emulation of virtual workspaces

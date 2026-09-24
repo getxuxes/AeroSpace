@@ -21,11 +21,15 @@ struct CenterFloatingCommand: Command {
             return .fail(io.err("Can't determine the window size. Specify both --width and --height"))
         }
         let size = CGSize(width: min(width, area.width), height: min(height, area.height))
-        let topLeft = CGPoint(
-            x: area.topLeftX + (area.width - size.width) / 2,
-            y: area.topLeftY + (area.height - size.height) / 2,
+        let frame = Rect(
+            topLeftX: area.topLeftX + (area.width - size.width) / 2,
+            topLeftY: area.topLeftY + (area.height - size.height) / 2,
+            width: size.width,
+            height: size.height,
         )
-        window.setAxFrame(topLeft, size)
+        // The tiling rect is still known if the window was made floating by the previous command in the same binding
+        let axRect = window.lastAppliedLayoutPhysicalRect == nil ? try? await window.getAxRect(.nonCancellable) : nil
+        WindowAnimator.shared.setFrame(window, from: window.lastAppliedLayoutPhysicalRect ?? axRect, to: frame)
         window.lastFloatingSize = size
         return .succ
     }
