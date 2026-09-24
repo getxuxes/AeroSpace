@@ -347,4 +347,41 @@ final class LayoutCommandTest: XCTestCase {
         assertEquals(result.exitCode.rawValue, 0)
         assertEquals(root.layoutDescription, .h_tiles([.window(1), .window(2)]))
     }
+
+    func testFloatingAndBackToTilingRestoresPosition() async {
+        let root = Workspace.get(byName: name).rootTilingContainer.apply {
+            TestWindow.new(id: 1, parent: $0)
+            assertEquals(TestWindow.new(id: 2, parent: $0).focusWindow(), true)
+            TestWindow.new(id: 3, parent: $0)
+        }
+
+        await parseCommand("layout floating").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        assertEquals(root.layoutDescription, .h_tiles([.window(1), .window(3)]))
+        assertEquals(Window.get(byId: 3)?.focusWindow(), true) // Change MRU window
+
+        await parseCommand("layout --window-id 2 tiling").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        assertEquals(root.layoutDescription, .h_tiles([.window(1), .window(2), .window(3)]))
+    }
+
+    func testFloatingAndBackToTilingRestoresFlattenedContainer() async {
+        config.enableNormalizationFlattenContainers = true
+        let workspace = Workspace.get(byName: name)
+        workspace.rootTilingContainer.apply {
+            TestWindow.new(id: 1, parent: $0)
+            TilingContainer.newVTiles(parent: $0, adaptiveWeight: 1, index: INDEX_BIND_LAST).apply {
+                TestWindow.new(id: 2, parent: $0)
+                assertEquals(TestWindow.new(id: 3, parent: $0).focusWindow(), true)
+            }
+        }
+
+        await parseCommand("layout floating").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        workspace.normalizeContainers()
+        assertEquals(workspace.rootTilingContainer.layoutDescription, .h_tiles([.window(1), .window(2)]))
+
+        await parseCommand("layout --window-id 3 tiling").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        assertEquals(
+            workspace.rootTilingContainer.layoutDescription,
+            .h_tiles([.window(1), .v_tiles([.window(2), .window(3)])]),
+        )
+    }
 }

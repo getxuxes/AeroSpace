@@ -65,6 +65,7 @@ struct LayoutCommand: Command {
                     case .floatingWindowsContainer(let container):
                         window.lastFloatingSize = (try? await window.getAxSize(.nonCancellable)) ?? window.lastFloatingSize
                         guard let workspace = container.nodeWorkspace else { return .fail(io.err(bugPrompt())) }
+                        if window.restoreTilingPosition(on: workspace) { return .succ }
                         do {
                             try await window.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
                         } catch {
@@ -75,6 +76,7 @@ struct LayoutCommand: Command {
             case .floating:
                 guard let window = target.windowOrNil else { return .fail(io.err(noWindowIsFocused)) }
                 let workspace = target.workspace
+                window.rememberTilingPosition()
                 window.bindAsFloatingWindow(to: workspace)
                 if let size = window.lastFloatingSize { window.setAxFrame(nil, size) }
                 return .succ
