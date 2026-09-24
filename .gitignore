@@ -21,6 +21,7 @@
 !/.editorconfig
 !/.gitattributes
 !/.gitignore
+!/CLAUDE.md
 !/CONTRIBUTING.md
 !/Gemfile
 !/Package.resolved
