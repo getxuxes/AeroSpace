@@ -171,13 +171,16 @@ final class MacApp: AbstractApp {
     func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, positionFirst: Bool) {
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
         guard animationFrames.put(windowId, topLeft, size, positionFirst) else { return } // Already queued
+        let queuedAt = CACurrentMediaTime()
         let job = withWindowAsync(windowId, .nonCancellable) { [animationFrames] window, job in
             guard let frame = animationFrames.take(windowId) else { return }
-            if frame.positionFirst {
-                window.set(Ax.topLeftCornerAttr, frame.topLeft)
-                if let size = frame.size { window.set(Ax.sizeAttr, size) }
-            } else {
-                try setFrame(window, frame.topLeft, frame.size, job)
+            try AnimationStats.timeAxWrite(queuedAt: queuedAt, windowId, frame.size == nil ? "p" : "ps") {
+                if frame.positionFirst {
+                    window.set(Ax.topLeftCornerAttr, frame.topLeft)
+                    if let size = frame.size { window.set(Ax.sizeAttr, size) }
+                } else {
+                    try setFrame(window, frame.topLeft, frame.size, job)
+                }
             }
         }
         if job.isCancelled { _ = animationFrames.take(windowId) } // The app is gone
@@ -189,10 +192,13 @@ final class MacApp: AbstractApp {
     /// AXEnhancedUserInterface is held off for the whole animation, see setAxFrameAnimated / EnhancedUiHold.
     func setAxFrameStickingOut(_ windowId: UInt32, pushedTo: CGPoint, _ topLeft: CGPoint, _ size: CGSize) {
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
+        let queuedAt = CACurrentMediaTime()
         _ = withWindowAsync(windowId, .nonCancellable) { window, job in
-            window.set(Ax.topLeftCornerAttr, pushedTo)
-            window.set(Ax.sizeAttr, size)
-            window.set(Ax.topLeftCornerAttr, topLeft)
+            AnimationStats.timeAxWrite(queuedAt: queuedAt, windowId, "so") {
+                window.set(Ax.topLeftCornerAttr, pushedTo)
+                window.set(Ax.sizeAttr, size)
+                window.set(Ax.topLeftCornerAttr, topLeft)
+            }
         }
     }
 

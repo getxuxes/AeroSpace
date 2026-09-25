@@ -75,6 +75,7 @@ final class WindowAnimator {
         for (id, entry) in displayLinks where !active.contains(id) {
             entry.link.invalidate()
             displayLinks.removeValue(forKey: id)
+            AnimationStats.shared?.log("link- \(CACurrentMediaTime()) \(id)")
         }
         for id in active where displayLinks[id] == nil {
             guard let screen = NSScreen.screens.first(where: { $0.displayId == id }) else { continue }
@@ -82,6 +83,7 @@ final class WindowAnimator {
             let link = screen.displayLink(target: ticker, selector: #selector(DisplayTicker.tick(_:)))
             link.add(to: .main, forMode: .common)
             displayLinks[id] = (link, ticker)
+            AnimationStats.shared?.log("link+ \(CACurrentMediaTime()) \(id) \(screen.maximumFramesPerSecond)")
         }
     }
 
@@ -138,7 +140,10 @@ private final class DisplayTicker: NSObject {
         self.displayId = displayId
         self.animator = animator
     }
-    @objc func tick(_: CADisplayLink) { animator?.displayTick(displayId) }
+    @objc func tick(_ link: CADisplayLink) {
+        AnimationStats.shared?.log("tick \(CACurrentMediaTime()) \(displayId) \(link.timestamp)")
+        animator?.displayTick(displayId)
+    }
 }
 
 extension NSScreen {
