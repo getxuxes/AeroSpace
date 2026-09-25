@@ -72,9 +72,8 @@ run_side() { # label, repoDir
         echo "  server did not come up (Accessibility permission for the debug build?)"; stop_server; return 1
     fi
     sleep 1 # let the server finish its first layout
-    local log=""
-    [ -f "$run/$label.server.log" ] && log="$run/$label.server.log"
-    "$tools/benchmark.sh" "$repo/.debug/aerospace" "$run/$label" "$reps" "$log"
+    # The server creates the log at its first animation. main has no AnimationStats and never creates it
+    "$tools/benchmark.sh" "$repo/.debug/aerospace" "$run/$label" "$reps" "$run/$label.server.log"
     stop_server
     sleep 1
 }
