@@ -17,7 +17,8 @@ let ids = (CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "")
 for id in ids {
     guard let arr = CGWindowListCreateDescriptionFromArray(widArray(id)) as? [[String: Any]],
           let b = arr.first?[kCGWindowBounds as String] as? NSDictionary,
-          let r = CGRect(dictionaryRepresentation: b) else {
+          let r = CGRect(dictionaryRepresentation: b)
+    else {
         print("\(id) MISSING")
         continue
     }
