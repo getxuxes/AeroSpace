@@ -25,11 +25,30 @@ dev-tools/animations/build.sh     # compiles into dev-tools/animations/.bin (git
 | `.bin/probe <id> <experiment> [screen]` | Writes frames over AX in a controlled way and samples the bounds every ~0.2 ms. It fights AeroSpace, so run `aerospace enable off` first and `aerospace enable on` afterwards. The experiments are listed below |
 | `.bin/levers <id> <experiment>` | Measures the AX primitives behind each smoothness lever on one window: `axframe` (is AXFrame writable), `writedur` (setPos/setSize p50/p95), `enhui` (toggle-per-frame vs hold AXEnhancedUserInterface off), `settle` (write→WindowServer latency), `vsync` (CADisplayLink vs a timer loop; needs no window). Needs the terminal's Accessibility permission |
 | `.bin/geom <id,id,…>` | Prints each window's WindowServer bounds as `id x y w h`. No Accessibility needed. Used to capture the settled final layout |
-| `benchmark.sh <cli> <label> [h\|v]` | Runs a battery of single-monitor scenarios against one running server, tracing each (frame-time + gaps) and snapshotting the final layout into `.bin/bench/<label>/` |
-| `compare-final.sh <labelA> <labelB> [tol]` | Diffs the final layouts of two runs; fails if any window ends up in a different place (final state must be identical to main) |
-| `ab-compare.sh [h\|v]` | One-shot: builds this branch and a main worktree, runs `benchmark.sh` against each (one server at a time), and runs `compare-final.sh`. Moves your windows; don't touch input while it runs |
+| `benchmark.sh <cli> <out-dir> [reps] [stats-log]` | Runs a battery of scenarios (3 windows on the focused workspace) against one running server, `reps` times each from a deterministic reset. Per repetition: a trace and the settled final layout (`geom`). With a stats log, also the server's AX write and tick timings of each scenario (`<scenario>.ax`) |
+| `.bin/report <dirA> <dirB> [labelA] [labelB]` | Markdown tables per scenario: frame time p50/p95/max, dropped frames, max gap, monitor flips, duration, final state vs B; and the server's AX write/wait durations and display link ticks |
+| `ab-compare.sh [reps]` | One-shot: builds this branch and a main worktree, runs `benchmark.sh` against each (one server at a time) and writes everything to `out/<date>-ab/` (`report.md`, `ab-compare.log`, `environment.txt`). Moves your windows; don't touch input while it runs |
 
 Window ids come from `aerospace list-windows --all`.
+
+### Metrics
+
+`trace` ends with a `STATS` line (definitions in `trace.swift`, `printStats`):
+
+- **Frame time**: the interval between two changes of a moving window's bounds, as the WindowServer shows them. At
+  144Hz a smooth animation is 6.94 ms.
+- **Dropped frames**: vsyncs without a change while the window was still visibly moving (the next step is ≥ 2pt). The
+  sub-point tail of the easing doesn't count.
+- **Gap**: 2D. The side of the largest square of a monitor's visible frame that no traced window covers, minus the same
+  in the settled first and last frames (the configured gaps). With separate Spaces a window only covers the monitor
+  that has most of it. This replaces the 1D `GAPS` of `summarize.sh`, which counts a window that leaves the row (e.g.
+  `move down`) as a gap.
+- **Monitor flips / wrong monitor**: how often a window's majority monitor changed (1 for a move between monitors),
+  and frames where it was mostly on a monitor that is neither its start nor its end.
+
+The server logs its side when started with `AEROSPACE_ANIMATION_STATS=<file>` (`AnimationStats.swift`): display link
+ticks and, per animated AX write, the time it waited on the app's AX thread and how long it took. `main` doesn't have
+it.
 
 ## How to compare two builds
 

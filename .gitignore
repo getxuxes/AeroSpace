@@ -35,3 +35,4 @@
 # XCode User settings
 xcuserdata/
 xcshareddata/
+/dev-tools/**/out
