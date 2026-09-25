@@ -11,7 +11,6 @@ struct PrevTilingPosition {
     let fraction: CGFloat
     let siblingsCount: Int
     let orientation: Orientation
-    let layout: Layout
     weak var prevSibling: TreeNode?
     weak var nextSibling: TreeNode?
 }
@@ -27,7 +26,6 @@ extension Window {
             fraction: total > 0 ? getWeight(parent.orientation) / total : 0,
             siblingsCount: parent.children.count - 1,
             orientation: parent.orientation,
-            layout: parent.layout,
             prevSibling: parent.children.getOrNil(atIndex: index - 1),
             nextSibling: parent.children.getOrNil(atIndex: index + 1),
         )
@@ -74,7 +72,6 @@ extension Window {
                 parent: binding.parent,
                 adaptiveWeight: binding.adaptiveWeight,
                 pos.orientation,
-                pos.layout,
                 index: binding.index,
             )
             anchor.bind(to: container, adaptiveWeight: anchorSize ?? 1, index: 0)

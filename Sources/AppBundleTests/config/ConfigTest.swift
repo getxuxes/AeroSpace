@@ -594,34 +594,6 @@ final class ConfigTest: XCTestCase {
         )
     }
 
-    func testParseDefaultRootContainerLayout() {
-        let result = parseConfig(
-            """
-            default-root-container-layout = 'accordion'
-            """,
-        )
-        assertEquals(result.errors, [])
-        assertEquals(result.config.defaultRootContainerLayout, .accordion)
-
-        let listResult = parseConfig(
-            """
-            default-root-container-layout = 'list'
-            """,
-        )
-        assertEquals(listResult.errors, [])
-        assertEquals(listResult.config.defaultRootContainerLayout, .tiles)
-
-        let bad = parseConfig(
-            """
-            default-root-container-layout = 'bogus'
-            """,
-        )
-        assertEquals(
-            bad.strErrors,
-            ["[ERROR] default-root-container-layout: Can\'t parse layout \'bogus\'"],
-        )
-    }
-
     func testParseDefaultRootContainerOrientation() {
         let result = parseConfig(
             """

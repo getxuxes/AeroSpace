@@ -92,7 +92,6 @@ private func restoreTreeRecursive(frozenContainer: FrozenContainer, parent: NonL
         parent: parent,
         adaptiveWeight: frozenContainer.weight,
         frozenContainer.orientation,
-        frozenContainer.layout,
         index: index,
     )
 

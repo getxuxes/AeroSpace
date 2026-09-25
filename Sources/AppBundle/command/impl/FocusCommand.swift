@@ -25,7 +25,7 @@ struct FocusCommand: Command {
         switch args.target {
             case .direction(let direction):
                 let window = target.windowOrNil
-                if let (parent, ownIndex) = window?.closestParent(hasChildrenInDirection: direction, withLayout: nil) {
+                if let (parent, ownIndex) = window?.closestParent(hasChildrenInDirection: direction) {
                     guard let windowToFocus = parent.children[ownIndex + direction.focusOffset]
                         .findLeafWindowRecursive(snappedTo: direction.opposite) else { return .fail(io.err(bugPrompt())) }
                     return .from(bool: windowToFocus.focusWindow())
@@ -141,16 +141,9 @@ struct FocusCommand: Command {
             guard let targetCenter = try? await target.getCenter(.nonCancellable) else { continue }
             guard let _tilingParent = target.parent as? TilingContainer else { continue }
             tilingParent = _tilingParent
-            index = switch tilingParent.layout {
-                case .tiles:
-                    center.getProjection(tilingParent.orientation) >= targetCenter.getProjection(tilingParent.orientation)
-                        ? target.ownIndex.orDie() + 1
-                        : target.ownIndex.orDie()
-                case .accordion:
-                    center.getProjection(tilingParent.orientation) >= targetCenter.getProjection(tilingParent.orientation)
-                        ? tilingParent.children.count
-                        : 0
-            }
+            index = center.getProjection(tilingParent.orientation) >= targetCenter.getProjection(tilingParent.orientation)
+                ? target.ownIndex.orDie() + 1
+                : target.ownIndex.orDie()
         } else {
             index = 0
             tilingParent = workspace.rootTilingContainer

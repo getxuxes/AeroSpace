@@ -41,22 +41,12 @@ struct LayoutCommand: Command {
             }
         }
         switch targetDescription {
-            case .h_accordion:
-                return changeTilingLayout(io, targetLayout: .accordion, targetOrientation: .h, node: node)
-            case .v_accordion:
-                return changeTilingLayout(io, targetLayout: .accordion, targetOrientation: .v, node: node)
-            case .h_tiles:
-                return changeTilingLayout(io, targetLayout: .tiles, targetOrientation: .h, node: node)
-            case .v_tiles:
-                return changeTilingLayout(io, targetLayout: .tiles, targetOrientation: .v, node: node)
-            case .accordion:
-                return changeTilingLayout(io, targetLayout: .accordion, targetOrientation: nil, node: node)
+            case .h_tiles, .horizontal:
+                return changeTilingLayout(io, targetOrientation: .h, node: node)
+            case .v_tiles, .vertical:
+                return changeTilingLayout(io, targetOrientation: .v, node: node)
             case .tiles:
-                return changeTilingLayout(io, targetLayout: .tiles, targetOrientation: nil, node: node)
-            case .horizontal:
-                return changeTilingLayout(io, targetLayout: nil, targetOrientation: .h, node: node)
-            case .vertical:
-                return changeTilingLayout(io, targetLayout: nil, targetOrientation: .v, node: node)
+                return changeTilingLayout(io, targetOrientation: nil, node: node)
             case .tiling:
                 guard let window = target.windowOrNil else { return .fail(io.err(noWindowIsFocused)) }
                 switch node {
@@ -95,7 +85,6 @@ struct LayoutCommand: Command {
 
 @MainActor private func changeTilingLayout(
     _ io: CmdIo,
-    targetLayout: Layout?,
     targetOrientation: Orientation?,
     node: ConventionalWindowParentCases,
 ) -> BinaryExitCode {
@@ -103,10 +92,7 @@ struct LayoutCommand: Command {
         case .floatingWindowsContainer:
             return .fail(io.err("The window is non-tiling"))
         case .tilingContainer(let parent):
-            let targetOrientation = targetOrientation ?? parent.orientation
-            let targetLayout = targetLayout ?? parent.layout
-            parent.layout = targetLayout
-            parent.changeOrientation(targetOrientation)
+            parent.changeOrientation(targetOrientation ?? parent.orientation)
             return .succ
     }
 }
@@ -114,16 +100,10 @@ struct LayoutCommand: Command {
 extension ConventionalWindowParentCases {
     fileprivate func matchesDescription(_ layout: LayoutCmdArgs.LayoutDescription) -> Bool {
         return switch layout {
-            case .accordion:   tilingContainerOrNil?.layout == .accordion
-            case .tiles:       tilingContainerOrNil?.layout == .tiles
-            case .horizontal:  tilingContainerOrNil?.orientation == .h
-            case .vertical:    tilingContainerOrNil?.orientation == .v
-            case .h_accordion: tilingContainerOrNil.map { $0.layout == .accordion && $0.orientation == .h } == true
-            case .v_accordion: tilingContainerOrNil.map { $0.layout == .accordion && $0.orientation == .v } == true
-            case .h_tiles:     tilingContainerOrNil.map { $0.layout == .tiles && $0.orientation == .h } == true
-            case .v_tiles:     tilingContainerOrNil.map { $0.layout == .tiles && $0.orientation == .v } == true
-            case .tiling:      tilingContainerOrNil != nil
-            case .floating:    floatingWindowsContainerOrNil != nil
+            case .tiles, .tiling:       tilingContainerOrNil != nil
+            case .horizontal, .h_tiles: tilingContainerOrNil?.orientation == .h
+            case .vertical, .v_tiles:   tilingContainerOrNil?.orientation == .v
+            case .floating:             floatingWindowsContainerOrNil != nil
         }
     }
 }

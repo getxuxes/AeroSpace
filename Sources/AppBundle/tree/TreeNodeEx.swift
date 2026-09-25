@@ -80,10 +80,7 @@ extension TreeNode {
     }
 
     /// Returns closest parent that has children in the specified direction relative to `self`
-    func closestParent(
-        hasChildrenInDirection direction: CardinalDirection,
-        withLayout layout: Layout?,
-    ) -> (parent: TilingContainer, ownIndex: Int)? {
+    func closestParent(hasChildrenInDirection direction: CardinalDirection) -> (parent: TilingContainer, ownIndex: Int)? {
         let innermostChild = parentsWithSelf.first(where: { (node: TreeNode) -> Bool in
             return switch node.parent?.cases {
                 // stop searching. We didn't find it, or something went wrong
@@ -94,8 +91,7 @@ extension TreeNode {
                      .macosPopupWindowsContainer:
                     true
                 case .tilingContainer(let parent):
-                    (layout == nil || parent.layout == layout) &&
-                        parent.orientation == direction.orientation &&
+                    parent.orientation == direction.orientation &&
                         (node.ownIndex.map { parent.children.indices.contains($0 + direction.focusOffset) } ?? true)
             }
         })

@@ -46,9 +46,9 @@ include::./util/conditional-arguments-header.adoc[]
 <target-layout>::
 Possible values:
 +
-* `h_tiles|v_tiles|h_accordion|v_accordion` - Change both tiling layout and orientation in one go
-* `tiles|accordion` - Change tiling layout but preserve orientation
-* `horizontal|vertical` - Change orientation but preserve layout
+* `h_tiles|v_tiles` - Change orientation (same as `horizontal|vertical`)
+* `tiles` - Keep the current orientation
+* `horizontal|vertical` - Change orientation
 * `tiling|floating` - Toggle between floating/tiling mode
 +
 If several `<target-layout>` are supplied, then the first one that doesn't describe the currently active layout is applied.
@@ -62,11 +62,6 @@ include::./util/conditional-examples-header.adoc[]
 * Toggle orientation (order of args doesn't matter): +
 `aerospace layout horizontal vertical`
 
-* Toggle between `tiles` and `accordion` layouts (order of args doesn't matter): +
-`aerospace layout tiles accordion`
-
-* Switch to `tiles` layout. Toggle the layout orientation if already in `tiles` layout: +
-`aerospace layout tiles horizontal vertical`
 
 // end::body[]
 

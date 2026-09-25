@@ -20,7 +20,7 @@ Deeper background lives in `dev-docs/architecture.md` and `dev-docs/development.
 |---|---|
 | `Package.swift` | SPM package: `PrivateApi`, `Common`, `AppBundle`, `AeroSpaceApp`, `Cli`, `AppBundleTests` |
 | `Sources/AppBundle/command/impl/` | One `<X>Command.swift` per command (server-side execution) |
-| `Sources/AppBundle/{config,tree,layout,mouse,ui}/` | TOML config parsing, workspace/window tree model, tiling/accordion layout, mouse, UI |
+| `Sources/AppBundle/{config,tree,layout,mouse,ui}/` | TOML config parsing, workspace/window tree model, tiling layout, mouse, UI |
 | `Sources/Common/cmdArgs/impl/` | One `<X>CmdArgs.swift` per command (flags & positional args parser) |
 | `Sources/AppBundleTests/` | XCTest tests, mirroring `AppBundle` structure (`command/`, `config/`, `tree/`, …) |
 | `Sources/PrivateApi/` | C shim exposing private `_AXUIElementGetWindow` |
