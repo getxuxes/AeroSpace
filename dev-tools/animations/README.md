@@ -23,6 +23,11 @@ dev-tools/animations/build.sh     # compiles into dev-tools/animations/.bin (git
 | `summarize.sh <trace output>` | `gapFrames>=10pt=N worst=Mpt` for one trace |
 | `scenario-example.sh <cli> <label>` | Traces real actions: a key binding sent as a key event, and moves between monitors. Adapt the window ids at the top |
 | `.bin/probe <id> <experiment> [screen]` | Writes frames over AX in a controlled way and samples the bounds every ~0.2 ms. It fights AeroSpace, so run `aerospace enable off` first and `aerospace enable on` afterwards. The experiments are listed below |
+| `.bin/levers <id> <experiment>` | Measures the AX primitives behind each smoothness lever on one window: `axframe` (is AXFrame writable), `writedur` (setPos/setSize p50/p95), `enhui` (toggle-per-frame vs hold AXEnhancedUserInterface off), `settle` (write→WindowServer latency), `vsync` (CADisplayLink vs a timer loop; needs no window). Needs the terminal's Accessibility permission |
+| `.bin/geom <id,id,…>` | Prints each window's WindowServer bounds as `id x y w h`. No Accessibility needed. Used to capture the settled final layout |
+| `benchmark.sh <cli> <label> [h\|v]` | Runs a battery of single-monitor scenarios against one running server, tracing each (frame-time + gaps) and snapshotting the final layout into `.bin/bench/<label>/` |
+| `compare-final.sh <labelA> <labelB> [tol]` | Diffs the final layouts of two runs; fails if any window ends up in a different place (final state must be identical to main) |
+| `ab-compare.sh [h\|v]` | One-shot: builds this branch and a main worktree, runs `benchmark.sh` against each (one server at a time), and runs `compare-final.sh`. Moves your windows; don't touch input while it runs |
 
 Window ids come from `aerospace list-windows --all`.
 
