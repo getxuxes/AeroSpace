@@ -142,13 +142,13 @@ final class MacApp: AbstractApp {
         if (!NSScreen.screensHaveSeparateSpaces || monitorInfos.count == 1) &&
             (lastNativeFocusedWindowId == windowId || windowsCount == 1)
         {
-            if !isKeyAndFront { nsApp.activate(options: .activateIgnoringOtherApps) }
+            if !isKeyAndFront { nsApp.activate() }
         } else {
             MacApp.focusJob = withWindowAsync(windowId, .cancellable) { [nsApp] window, job in
                 // Raise firstly to make sure that by the time we activate the app, the window would be already on top
                 window.set(Ax.isMainAttr, true)
                 AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-                if !isKeyAndFront { nsApp.activate(options: .activateIgnoringOtherApps) }
+                if !isKeyAndFront { nsApp.activate() }
             }
         }
     }
@@ -165,19 +165,19 @@ final class MacApp: AbstractApp {
     /// Writes a frame of an animation. Unlike setAxFrame, a queued write is never cancelled: the app's AX thread may be
     /// busy with another window of the app for longer than a frame, and cancelling would starve this window until the
     /// animation ends. Instead, the queued write takes the latest frame when it runs.
+    /// AXEnhancedUserInterface is not toggled here: it is held off for the whole animation (see EnhancedUiHold, kept off
+    /// between disableEnhancedUiForAnimation and restoreEnhancedUiAfterAnimation).
     /// `positionFirst`: see shrinksAtMonitorEdge
     func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, positionFirst: Bool) {
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
         guard animationFrames.put(windowId, topLeft, size, positionFirst) else { return } // Already queued
-        let job = withWindowAsync(windowId, .nonCancellable) { [axApp, animationFrames] window, job in
+        let job = withWindowAsync(windowId, .nonCancellable) { [animationFrames] window, job in
             guard let frame = animationFrames.take(windowId) else { return }
-            try disableAnimations(app: axApp.threadGuarded, job) {
-                if frame.positionFirst {
-                    window.set(Ax.topLeftCornerAttr, frame.topLeft)
-                    if let size = frame.size { window.set(Ax.sizeAttr, size) }
-                } else {
-                    try setFrame(window, frame.topLeft, frame.size, job)
-                }
+            if frame.positionFirst {
+                window.set(Ax.topLeftCornerAttr, frame.topLeft)
+                if let size = frame.size { window.set(Ax.sizeAttr, size) }
+            } else {
+                try setFrame(window, frame.topLeft, frame.size, job)
             }
         }
         if job.isCancelled { _ = animationFrames.take(windowId) } // The app is gone
@@ -185,15 +185,34 @@ final class MacApp: AbstractApp {
 
     /// macOS trims a resize that would push a window that fits on the screen out of it. It doesn't trim the resize of a
     /// window that already sticks out. Push the window a few points past the edge first (to `pushedTo`), then resize and move it.
-    /// Non-cancellable: the next frame would cancel it halfway, and the window would never get its size
+    /// Non-cancellable: the next frame would cancel it halfway, and the window would never get its size.
+    /// AXEnhancedUserInterface is held off for the whole animation, see setAxFrameAnimated / EnhancedUiHold.
     func setAxFrameStickingOut(_ windowId: UInt32, pushedTo: CGPoint, _ topLeft: CGPoint, _ size: CGSize) {
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        _ = withWindowAsync(windowId, .nonCancellable) { [axApp] window, job in
-            try disableAnimations(app: axApp.threadGuarded, job) {
-                window.set(Ax.topLeftCornerAttr, pushedTo)
-                window.set(Ax.sizeAttr, size)
-                window.set(Ax.topLeftCornerAttr, topLeft)
-            }
+        _ = withWindowAsync(windowId, .nonCancellable) { window, job in
+            window.set(Ax.topLeftCornerAttr, pushedTo)
+            window.set(Ax.sizeAttr, size)
+            window.set(Ax.topLeftCornerAttr, topLeft)
+        }
+    }
+
+    /// Enters "animation mode": turns AXEnhancedUserInterface off once (if it was on) so it isn't toggled around every
+    /// frame write. Reports on the main actor whether it was on, so EnhancedUiHold can persist it for a crash-safe restore.
+    func disableEnhancedUiForAnimation(_ onDone: @escaping @Sendable @MainActor (_ wasEnabled: Bool) -> ()) {
+        let didRun = thread?.runInLoopAsync(job: RunLoopJob(.nonCancellable)) { [axApp] job in
+            let wasEnabled = axApp.threadGuarded.get(Ax.enhancedUserInterfaceAttr) == true
+            if wasEnabled { axApp.threadGuarded.set(Ax.enhancedUserInterfaceAttr, false) }
+            Task.startUnstructured { @MainActor in onDone(wasEnabled) }
+        }
+        if didRun == nil || didRun?.isCancelled == true { // The app is gone: nothing was disabled
+            Task.startUnstructured { @MainActor in onDone(false) }
+        }
+    }
+
+    /// Leaves "animation mode": restores AXEnhancedUserInterface. Only called for apps where it was originally on.
+    func restoreEnhancedUiAfterAnimation() {
+        thread?.runInLoopAsync(job: RunLoopJob(.nonCancellable)) { [axApp] job in
+            axApp.threadGuarded.set(Ax.enhancedUserInterfaceAttr, true)
         }
     }
 

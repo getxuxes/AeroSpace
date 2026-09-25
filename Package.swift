@@ -10,9 +10,9 @@ let swiftSettings: [SwiftSetting] = [
 
 let package = Package(
     name: "AeroSpacePackage",
-    // Runtime support for parameterized protocol types is only available in macOS 13.0.0 or newer
-    // And it specifies deploymentTarget for CLI
-    platforms: [.macOS(.v13)],
+    // macOS 14 is required for NSScreen.displayLink (the animation tick, see WindowAnimator).
+    // It also specifies deploymentTarget for CLI
+    platforms: [.macOS(.v14)],
     // Products define the executables and libraries a package produces, making them visible to other packages.
     products: [
         .executable(name: "aerospace", targets: ["Cli"]),

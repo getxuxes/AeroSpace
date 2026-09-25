@@ -6,7 +6,9 @@ import Common
 final class WindowAnimator {
     static let shared = WindowAnimator()
     private var animations: [UInt32: FrameAnimation] = [:]
-    private var tickTask: Task<(), Never>? = nil
+    /// One CADisplayLink per screen that has an animating window. Each fires on the main run loop at that screen's
+    /// refresh rate and ticks only the windows on it, so writes are phase-locked to each monitor's vsync.
+    private var displayLinks: [CGDirectDisplayID: (link: CADisplayLink, ticker: DisplayTicker)] = [:]
 
     private init() {}
 
@@ -43,8 +45,9 @@ final class WindowAnimator {
                 separateSpaces: NSScreen.screensHaveSeparateSpaces,
             ),
         )
+        EnhancedUiHold.shared.retain(macWindow.macApp, window.windowId)
         tick()
-        startTickingIfNeeded()
+        reconcileDisplayLinks()
     }
 
     /// The frame where the running animation ends, nil if the window isn't animating
@@ -55,28 +58,40 @@ final class WindowAnimator {
     /// Called when somebody else sets the window frame directly. The last writer wins.
     /// Returns the size to restore if the animation left the window bigger than it looks
     func cancel(_ windowId: UInt32) -> CGSize? {
-        guard let animation = animations.removeValue(forKey: windowId), animation.isSetUp, animation.sticksOut else { return nil }
+        guard let animation = animations.removeValue(forKey: windowId) else { return nil }
+        EnhancedUiHold.shared.release(animation.window.macApp, windowId)
+        reconcileDisplayLinks()
+        guard animation.isSetUp, animation.sticksOut else { return nil }
         return animation.frame(at: CACurrentMediaTime()).size
     }
 
-    private func startTickingIfNeeded() {
-        if tickTask != nil { return }
-        tickTask = Task.startUnstructured { @MainActor in
-            while !self.animations.isEmpty {
-                // Tick as often as the fastest screen with an animated window refreshes (60Hz, 120Hz, 144Hz, …)
-                let interval = self.animations.values.map { frameInterval($0.to) }.min() ?? frameInterval(nil)
-                try? await Task.sleep(for: .seconds(interval))
-                self.tick()
-            }
-            self.tickTask = nil
+    /// Fired by a screen's CADisplayLink on the main run loop. Ticks only the windows on that screen.
+    fileprivate func displayTick(_ displayId: CGDirectDisplayID) { tick(onlyDisplay: displayId) }
+
+    /// Ensures exactly one running CADisplayLink per screen that currently has an animating window, and none for the rest.
+    private func reconcileDisplayLinks() {
+        var active = Set<CGDirectDisplayID>()
+        for (_, animation) in animations { active.insert(displayId(for: animation.to)) }
+        for (id, entry) in displayLinks where !active.contains(id) {
+            entry.link.invalidate()
+            displayLinks.removeValue(forKey: id)
+        }
+        for id in active where displayLinks[id] == nil {
+            guard let screen = NSScreen.screens.first(where: { $0.displayId == id }) else { continue }
+            let ticker = DisplayTicker(displayId: id, animator: self)
+            let link = screen.displayLink(target: ticker, selector: #selector(DisplayTicker.tick(_:)))
+            link.add(to: .main, forMode: .common)
+            displayLinks[id] = (link, ticker)
         }
     }
 
-    private func tick() {
+    private func tick(onlyDisplay: CGDirectDisplayID? = nil) {
         let now = CACurrentMediaTime()
         for (windowId, animation) in animations {
+            if let onlyDisplay, displayId(for: animation.to) != onlyDisplay { continue }
             if windowId == currentlyManipulatedWithMouseWindowId {
                 animations.removeValue(forKey: windowId)
+                EnhancedUiHold.shared.release(animation.window.macApp, windowId)
                 continue
             }
             let isFinished = animation.progress(at: now) >= 1
@@ -100,10 +115,35 @@ final class WindowAnimator {
             animation.window.macApp.setAxFrameAnimated(windowId, frame.topLeftCorner, size, positionFirst: animation.positionFirst)
             if isFinished {
                 animations.removeValue(forKey: windowId)
+                EnhancedUiHold.shared.release(animation.window.macApp, windowId)
             } else if let size {
                 animations[windowId]?.lastSentSize = size
             }
         }
+        reconcileDisplayLinks()
+    }
+
+    private func displayId(for rect: Rect) -> CGDirectDisplayID {
+        NSScreen.screens.first { $0.frame.monitorFrameNormalized().contains(rect.center) }?.displayId ?? CGMainDisplayID()
+    }
+}
+
+/// An @objc target for a screen's CADisplayLink. The link needs an NSObject target/selector, WindowAnimator is a plain
+/// actor-isolated class. One per screen, carrying the screen's display id so the tick knows which windows to advance.
+@MainActor
+private final class DisplayTicker: NSObject {
+    private let displayId: CGDirectDisplayID
+    private weak var animator: WindowAnimator?
+    init(displayId: CGDirectDisplayID, animator: WindowAnimator) {
+        self.displayId = displayId
+        self.animator = animator
+    }
+    @objc func tick(_: CADisplayLink) { animator?.displayTick(displayId) }
+}
+
+extension NSScreen {
+    fileprivate var displayId: CGDirectDisplayID? {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
 }
 
