@@ -110,7 +110,7 @@ final class WindowAnimator {
         // Resizing is expensive for apps (they have to re-layout). Don't resize if the size barely changed
         let sizeChanged = abs(frame.width - animation.lastSentSize.width) >= 1 || abs(frame.height - animation.lastSentSize.height) >= 1
         let size: CGSize? = isFinished || sizeChanged ? frame.size : nil
-        animation.window.macApp.setAxFrameAnimated(windowId, frame.topLeftCorner, size)
+        animation.window.macApp.setAxFrameAnimated(windowId, frame.topLeftCorner, size, isLast: isFinished)
         if isFinished {
             animations.removeValue(forKey: windowId)
             EnhancedUiHold.shared.release(animation.window.macApp, windowId)

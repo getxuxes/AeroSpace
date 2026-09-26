@@ -167,12 +167,20 @@ final class MacApp: AbstractApp {
     /// animation ends. Instead, the queued write takes the latest frame when it runs.
     /// AXEnhancedUserInterface is not toggled here: it is held off for the whole animation (see EnhancedUiHold, kept off
     /// between disableEnhancedUiForAnimation and restoreEnhancedUiAfterAnimation).
-    func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?) {
+    /// In-between frames are one resize and one move. The second resize of setFrame would redraw the window twice per
+    /// frame, and at the monitor edge macOS trims the first one, so the window would flicker between two sizes. The last
+    /// frame uses setFrame, so the window ends up exactly where the layout wants it
+    func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, isLast: Bool) {
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        guard animationFrames.put(windowId, topLeft, size) else { return } // Already queued
+        guard animationFrames.put(windowId, topLeft, size, isLast) else { return } // Already queued
         let job = withWindowAsync(windowId, .nonCancellable) { [animationFrames] window, job in
             guard let frame = animationFrames.take(windowId) else { return }
-            try setFrame(window, frame.topLeft, frame.size, job)
+            if frame.isLast {
+                try setFrame(window, frame.topLeft, frame.size, job)
+            } else {
+                if let size = frame.size { window.set(Ax.sizeAttr, size) }
+                window.set(Ax.topLeftCornerAttr, frame.topLeft)
+            }
         }
         if job.isCancelled { _ = animationFrames.take(windowId) } // The app is gone
     }
@@ -445,15 +453,15 @@ extension [UInt32: AxWindow] {
 /// The latest animation frame of each window. Put on the main thread, taken on the app's AX thread
 private final class AnimationFrames: Sendable {
     private let lock = NSLock()
-    typealias Frame = (topLeft: CGPoint, size: CGSize?)
+    typealias Frame = (topLeft: CGPoint, size: CGSize?, isLast: Bool)
     nonisolated(unsafe) private var frames: [UInt32: Frame] = [:]
 
     /// Returns false if a write of the window is already queued. That write will take this frame
-    func put(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?) -> Bool {
+    func put(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, _ isLast: Bool) -> Bool {
         lock.withLock {
             let queued = unsafe frames[windowId]
             // nil size means "unchanged since the last frame". Don't lose the size of a frame that wasn't written yet
-            unsafe frames[windowId] = (topLeft, size ?? queued?.size)
+            unsafe frames[windowId] = (topLeft, size ?? queued?.size, isLast)
             return queued == nil
         }
     }
