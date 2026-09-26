@@ -124,6 +124,7 @@ final class MacWindow: Window {
         guard let nodeMonitor else { return }
         // The window will be unhidden via layoutRecursive. It shouldn't be animated from its old position
         lastAppliedLayoutPhysicalRect = nil
+        _ = WindowAnimator.shared.takeFullscreenFrame(windowId)
         // Don't accidentally override prevUnhiddenEmulationPosition in case of subsequent `hideInCorner` calls
         if !isHiddenInCorner {
             guard let windowRect = try await getAxRect(.cancellable) else { return }

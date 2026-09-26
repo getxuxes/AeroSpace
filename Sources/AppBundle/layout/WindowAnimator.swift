@@ -9,6 +9,9 @@ final class WindowAnimator {
     /// One CADisplayLink per screen that has an animating window. Each fires on the main run loop at that screen's
     /// refresh rate and ticks only the windows on it, so writes are phase-locked to each monitor's vsync.
     private var displayLinks: [CGDirectDisplayID: (link: CADisplayLink, ticker: DisplayTicker)] = [:]
+    /// Where each fullscreen window was laid out. A fullscreen window keeps lastAppliedLayoutPhysicalRect nil (other code
+    /// reads it as the tile rect), so without this, leaving fullscreen would have no frame to animate from
+    private var fullscreenFrames: [UInt32: Rect] = [:]
 
     private init() {}
 
@@ -48,6 +51,16 @@ final class WindowAnimator {
         EnhancedUiHold.shared.retain(macWindow.macApp, window.windowId)
         tick()
         reconcileDisplayLinks()
+    }
+
+    func setFullscreenFrame(_ window: Window, from prevRect: Rect?, to target: Rect) {
+        fullscreenFrames[window.windowId] = target
+        setFrame(window, from: prevRect, to: target)
+    }
+
+    /// The frame of a window that leaves fullscreen, to animate from. Nil if it wasn't fullscreen
+    func takeFullscreenFrame(_ windowId: UInt32) -> Rect? {
+        fullscreenFrames.removeValue(forKey: windowId)
     }
 
     /// The frame where the running animation ends, nil if the window isn't animating

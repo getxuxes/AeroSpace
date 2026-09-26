@@ -32,10 +32,11 @@ extension TreeNode {
                 if window.windowId != currentlyManipulatedWithMouseWindowId {
                     lastAppliedLayoutVirtualRect = virtual
                     if window.isFullscreen && window == context.workspace.rootTilingContainer.mostRecentWindowRecursive {
-                        lastAppliedLayoutPhysicalRect = nil
-                        window.layoutFullscreen(context)
-                    } else {
                         let prevPhysicalRect = lastAppliedLayoutPhysicalRect
+                        lastAppliedLayoutPhysicalRect = nil
+                        window.layoutFullscreen(context, from: prevPhysicalRect)
+                    } else {
+                        let prevPhysicalRect = lastAppliedLayoutPhysicalRect ?? WindowAnimator.shared.takeFullscreenFrame(window.windowId)
                         lastAppliedLayoutPhysicalRect = physicalRect
                         window.isFullscreen = false
                         WindowAnimator.shared.setFrame(window, from: prevPhysicalRect, to: physicalRect)
@@ -89,17 +90,18 @@ extension Window {
             setAxFrame(CGPoint(x: newX, y: newY), nil)
         }
         if isFullscreen {
-            layoutFullscreen(context)
+            layoutFullscreen(context, from: nil)
+            _ = WindowAnimator.shared.takeFullscreenFrame(windowId) // It stays floating: nothing leaves fullscreen later
             isFullscreen = false
         }
     }
 
     @MainActor
-    fileprivate func layoutFullscreen(_ context: LayoutContext) {
+    fileprivate func layoutFullscreen(_ context: LayoutContext, from prevRect: Rect?) {
         let monitorRect = noOuterGapsInFullscreen
             ? context.workspace.workspaceMonitor.visibleRect
             : context.workspace.workspaceMonitor.visibleRectPaddedByOuterGaps
-        setAxFrame(monitorRect.topLeftCorner, CGSize(width: monitorRect.width, height: monitorRect.height))
+        WindowAnimator.shared.setFullscreenFrame(self, from: prevRect, to: monitorRect)
     }
 }
 

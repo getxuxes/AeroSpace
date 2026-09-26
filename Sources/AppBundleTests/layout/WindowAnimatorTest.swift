@@ -79,3 +79,17 @@ final class WindowAnimatorTest: XCTestCase {
         assertEquals(stuckOutLength(visible: 600, target: 1000, lastSent: 500, limit: nil), 600)
     }
 }
+
+@MainActor
+final class WindowAnimatorFullscreenTest: XCTestCase {
+    override func setUp() async throws { setUpWorkspacesForTests() }
+
+    func testLeavingFullscreenAnimatesFromTheFullscreenFrame() {
+        let window = TestWindow.new(id: 1, parent: Workspace.get(byName: name).rootTilingContainer)
+        let fullscreen = Rect(topLeftX: 0, topLeftY: 30, width: 2560, height: 1410)
+        WindowAnimator.shared.setFullscreenFrame(window, from: nil, to: fullscreen)
+        assertEquals(WindowAnimator.shared.takeFullscreenFrame(1)?.width, 2560)
+        // Taken once: a later layout of the window as a tile doesn't animate from a stale fullscreen frame
+        assertNil(WindowAnimator.shared.takeFullscreenFrame(1))
+    }
+}
