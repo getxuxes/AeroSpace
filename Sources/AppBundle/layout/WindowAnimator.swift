@@ -24,7 +24,6 @@ final class WindowAnimator {
         guard settings.enabled, settings.durationMs > 0, let macWindow = window as? MacWindow,
               let from = running?.frame(at: now) ?? prevRect, !from.isClose(to: target)
         else {
-            AnimationStats.shared?.logFrame(window.windowId, target)
             window.setAxFrame(target.topLeftCorner, target.size)
             return
         }
@@ -66,7 +65,6 @@ final class WindowAnimator {
     /// Called when somebody else sets the window frame directly. The last writer wins
     func cancel(_ windowId: UInt32) {
         guard let animation = animations.removeValue(forKey: windowId) else { return }
-        AnimationStats.shared?.log("end \(CACurrentMediaTime()) \(windowId)")
         EnhancedUiHold.shared.release(animation.window.macApp, windowId)
         reconcileDisplayLinks()
     }
@@ -88,7 +86,6 @@ final class WindowAnimator {
         for (id, entry) in displayLinks where !active.contains(id) {
             entry.link.invalidate()
             displayLinks.removeValue(forKey: id)
-            AnimationStats.shared?.log("link- \(CACurrentMediaTime()) \(id)")
         }
         for id in active where displayLinks[id] == nil {
             guard let screen = NSScreen.screens.first(where: { $0.displayId == id }) else { continue }
@@ -96,7 +93,6 @@ final class WindowAnimator {
             let link = screen.displayLink(target: ticker, selector: #selector(DisplayTicker.tick(_:)))
             link.add(to: .main, forMode: .common)
             displayLinks[id] = (link, ticker)
-            AnimationStats.shared?.log("link+ \(CACurrentMediaTime()) \(id) \(screen.maximumFramesPerSecond)")
         }
     }
 
@@ -111,7 +107,6 @@ final class WindowAnimator {
         }
         let isFinished = animation.isFinished(at: time)
         let frame = animation.frame(at: time)
-        AnimationStats.shared?.logFrame(windowId, frame)
         // Resizing is expensive for apps (they have to re-layout). Don't resize if the size barely changed
         let sizeChanged = abs(frame.width - animation.lastSentSize.width) >= 1 || abs(frame.height - animation.lastSentSize.height) >= 1
         let size: CGSize? = isFinished || sizeChanged ? frame.size : nil
@@ -136,10 +131,7 @@ private final class DisplayTicker: NSObject {
         self.displayId = displayId
         self.animator = animator
     }
-    @objc func tick(_ link: CADisplayLink) {
-        AnimationStats.shared?.log("tick \(CACurrentMediaTime()) \(displayId) \(link.timestamp)")
-        animator?.displayTick(displayId)
-    }
+    @objc func tick(_: CADisplayLink) { animator?.displayTick(displayId) }
 }
 
 extension NSScreen {

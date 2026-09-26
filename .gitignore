@@ -9,7 +9,6 @@
 !/Sources
 !/axDumps
 !/dev-docs
-!/dev-tools
 !/docs
 !/grammar
 !/legal
@@ -30,9 +29,7 @@
 !/README.md
 
 /xcode/.xcode-build
-/dev-tools/**/.bin
 
 # XCode User settings
 xcuserdata/
 xcshareddata/
-/dev-tools/**/out

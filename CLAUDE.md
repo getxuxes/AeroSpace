@@ -29,7 +29,6 @@ Deeper background lives in `dev-docs/architecture.md` and `dev-docs/development.
 | `axDumps/` | Accessibility dumps of real apps, used by window-detection tests |
 | `xcode/` | Generated Xcode project (xcodegen). Only used by release builds |
 | `script/` | Helper scripts used by the top-level `*.sh` |
-| `dev-tools/animations/` | Tools that measure what the WindowServer shows during window animations and moves (no screen capture), and what the measurements showed |
 
 **Generated files:** don't edit `*Generated.swift` by hand. Regenerate them with `./generate.sh`.
 - `Sources/Common/cmdHelpGenerated.swift` is generated from `docs/aerospace-*.adoc`.
@@ -93,31 +92,28 @@ Take `echo` as the reference: `EchoCmdArgs.swift`, `EchoCommand.swift`, `EchoCom
 
 ## Window animations and window behavior
 
-`WindowAnimator.swift` animates windows by writing frames over AX, ticked by one display link per screen, and the
-WindowServer applies moves and resizes at different times. Before you change animations, or debug anything visual (gaps,
-flicker, windows that jump), read `dev-tools/animations/README.md`.
-- It records the facts already measured (why a window that grows to the left uncovers what is behind it, when macOS
-  trims a resize, separate Spaces, the 3pt push, the per-app AX thread). It also lists what was tried and rejected.
-- Measured ceilings: moves reach every vsync (p50 ~7 ms at 144Hz); a resize can't be faster than the app redraws (Zen
-  5–17 ms, Ghostty ~8, TextEdit ~9), and gaps between tiles are a slow neighbour lagging behind. macOS's own tiling
-  animation has the same limits.
-- Rejected, don't propose again: SkyLight window moves (nothing moves from our process on macOS 27), AXFrame (not
-  writable), pushing windows off-screen, animating screenshots, an opaque backdrop, tiles that jump, moving now and
-  resizing at the end, triggering macOS's Move & Resize.
-- With `[animations] enabled = false` behavior must stay identical to `main`: guard every change behind the setting.
+`WindowAnimator.swift` animates windows by writing frames over AX, ticked by one display link per screen. Every
+window gets the same writes on every frame (`setFrame`: size, position, size), through a latest-frame mailbox per window
+on its app's AX thread (`MacApp.setAxFrameAnimated`). Keep it that way: general rules, no special cases.
 
-Measure with its tools, not by eye:
-- `dev-tools/animations/ab-compare.sh [suites] [reps]` builds this branch and a `main` worktree, quits the installed
-  AeroSpace, runs `benchmark.sh` against each build, reopens AeroSpace and writes `out/<date>-ab/report.md`: frame time,
-  dropped frames, total and unexpected gaps, resize share, velocity jumps, monitor flips, final state per scenario.
-  `BENCH_ONLY='regex'` runs a subset; `AB_B=branch AB_B_ANIMATIONS="…"` compares two configs of the branch.
-- It needs the windows it acts on open (2 Ghostty, 2 Zen, 2 TextEdit, Discord, Finder) and nobody touching the input.
-  Don't build or edit its scripts while it runs.
-- Servers log with `AEROSPACE_ANIMATION_STATS=<file>` (`AnimationStats.swift`); `main` gets the same logs from
-  `main-instrumentation.patch` during the build only.
-- Repeat a suspicious case ≥10 times on both builds before calling it a regression: 2/3 vs 0/3 isn't a difference.
-- Test the user's real key bindings (their commands run in one batch), vertical and horizontal layouts, and moves
-  between monitors.
+What AX allows, measured on macOS 27:
+- There is no atomic frame write. `AXPosition` and `AXSize` are separate, and `AXFrame` isn't writable.
+- A move reaches the screen in about 1 vsync. A resize waits for the app to redraw, 1–3 vsyncs later (Zen 5–17 ms,
+  Ghostty ~8, TextEdit ~9). A window growing to the left or up can uncover what is behind it for a frame or two.
+  Gaps between tiles are a slow app lagging behind. That's the ceiling: macOS's own tiling animation has it too.
+- Each app has one AX thread in AeroSpace. A slow AX call (e.g. focusing a window) delays that app's animation.
+
+Rejected, don't propose again:
+- per-direction or per-edge tricks (pushing a window a few points past the monitor edge, a special write order at the
+  edge);
+- SkyLight window moves (nothing moves from our process);
+- pushing windows off-screen;
+- animating screenshots, or an opaque backdrop;
+- tiles that jump, or moving now and resizing at the end;
+- triggering macOS's Move & Resize.
+
+With `[animations] enabled = false` behavior must stay identical to `main`: guard every change behind the setting. Try
+changes with the user's real key bindings, in vertical and horizontal layouts, and when moving between monitors.
 
 ## Conventions and gotchas
 

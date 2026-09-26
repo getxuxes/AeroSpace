@@ -3,7 +3,7 @@ import Common
 import Foundation
 
 /// Holds `AXEnhancedUserInterface` **off** for the whole duration of an animation of an app's windows, instead of
-/// toggling it around every single frame write (measured 1.7–3.4× cheaper p95 per frame, see dev-tools/animations).
+/// toggling it around every single frame write (measured 1.7–3.4× cheaper p95 per frame).
 ///
 /// - Reference-counted per app (the attribute is app-wide): the first window of an app that starts animating disables
 ///   it, the last one to finish restores it. Only apps where it was originally on are touched.
