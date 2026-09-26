@@ -35,6 +35,9 @@ final class WindowAnimator {
             // Start one tick ahead. Otherwise, the first frame is sent at the start position and doesn't move anything
             startTime: now - frameInterval(target),
             duration: Double(settings.durationMs) / 1000,
+            curve: settings.curve,
+            // An interrupted animation continues with the velocity it had (only the spring can take it)
+            startVelocity: running?.velocity(at: now) ?? .zero,
             lastSentSize: running?.lastSentSize ?? from.size,
             stickOutLimit: stickOutLimit(
                 from: from,
@@ -111,7 +114,7 @@ final class WindowAnimator {
                 EnhancedUiHold.shared.release(animation.window.macApp, windowId)
                 continue
             }
-            let isFinished = animation.progress(at: now) >= 1
+            let isFinished = animation.isFinished(at: now)
             let frame = animation.frame(at: now)
             AnimationStats.shared?.logFrame(windowId, frame)
             if !isFinished && !animation.isSetUp && animation.sticksOut {
@@ -183,6 +186,9 @@ private struct FrameAnimation {
     let to: Rect
     let startTime: CFTimeInterval
     let duration: CFTimeInterval
+    let curve: AnimationCurve
+    /// Points per second of (topLeftX, topLeftY, width, height)
+    let startVelocity: RectVelocity
     var lastSentSize: CGSize
     let stickOutLimit: (x: CGFloat?, y: CGFloat?)
     let positionFirst: Bool
@@ -190,20 +196,51 @@ private struct FrameAnimation {
 
     var sticksOut: Bool { stickOutLimit.x != nil || stickOutLimit.y != nil }
 
-    func progress(at time: CFTimeInterval) -> Double {
-        duration <= 0 ? 1 : ((time - startTime) / duration).coerce(in: 0 ... 1)
+    func isFinished(at time: CFTimeInterval) -> Bool {
+        switch curve {
+            case .easeOut: easeOutProgress(at: time) >= 1
+            case .spring: spring.isSettled(from: from, to: to, v0: startVelocity, time - startTime)
+        }
     }
 
     func frame(at time: CFTimeInterval) -> Rect {
-        let t = progress(at: time)
-        let eased = 1 - pow(1 - t, 3) // ease-out cubic
-        func lerp(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * eased }
-        return Rect(
-            topLeftX: lerp(from.topLeftX, to.topLeftX),
-            topLeftY: lerp(from.topLeftY, to.topLeftY),
-            width: lerp(from.width, to.width),
-            height: lerp(from.height, to.height),
-        )
+        switch curve {
+            case .easeOut:
+                let eased = 1 - pow(1 - easeOutProgress(at: time), 3) // ease-out cubic
+                func lerp(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * eased }
+                return Rect(
+                    topLeftX: lerp(from.topLeftX, to.topLeftX),
+                    topLeftY: lerp(from.topLeftY, to.topLeftY),
+                    width: lerp(from.width, to.width),
+                    height: lerp(from.height, to.height),
+                )
+            case .spring:
+                return spring.frame(from: from, to: to, v0: startVelocity, time - startTime)
+        }
+    }
+
+    /// The velocity of the frame, so that an animation that interrupts this one can start with it
+    func velocity(at time: CFTimeInterval) -> RectVelocity {
+        switch curve {
+            case .easeOut:
+                let t = easeOutProgress(at: time)
+                if t >= 1 || duration <= 0 { return .zero }
+                let speed = 3 * pow(1 - t, 2) / duration // d(eased)/dtime
+                return RectVelocity(
+                    x: (to.topLeftX - from.topLeftX) * speed,
+                    y: (to.topLeftY - from.topLeftY) * speed,
+                    width: (to.width - from.width) * speed,
+                    height: (to.height - from.height) * speed,
+                )
+            case .spring:
+                return spring.velocity(from: from, to: to, v0: startVelocity, time - startTime)
+        }
+    }
+
+    private var spring: CriticallyDampedSpring { CriticallyDampedSpring(settleTime: duration) }
+
+    private func easeOutProgress(at time: CFTimeInterval) -> Double {
+        duration <= 0 ? 1 : ((time - startTime) / duration).coerce(in: 0 ... 1)
     }
 
     /// A window that sticks out is bigger than it looks, then it only moves
@@ -212,6 +249,63 @@ private struct FrameAnimation {
             width: stuckOutLength(visible: frame.width, target: to.width, lastSent: lastSentSize.width, limit: stickOutLimit.x),
             height: stuckOutLength(visible: frame.height, target: to.height, lastSent: lastSentSize.height, limit: stickOutLimit.y),
         )
+    }
+}
+
+struct RectVelocity: Equatable {
+    var x: CGFloat
+    var y: CGFloat
+    var width: CGFloat
+    var height: CGFloat
+    static let zero = RectVelocity(x: 0, y: 0, width: 0, height: 0)
+}
+
+/// x(t) = to + (x0 + (v0 + ωx0)·t)·e^(-ωt), x0 = from - to, per component: the fastest approach to the target without
+/// oscillating. ω is picked so that a move from rest is within 1% of the distance after `settleTime` ((1 + ωt)e^(-ωt)
+/// = 0.01 at ωt ≈ 6.64). Unlike a fixed-duration curve, it can start with any velocity, so interruptions don't jerk
+struct CriticallyDampedSpring {
+    let omega: Double
+
+    init(settleTime: Double) { omega = 6.64 / max(settleTime, 0.001) }
+
+    private func position(_ from: CGFloat, _ to: CGFloat, _ v0: CGFloat, _ t: Double) -> CGFloat {
+        let x0 = Double(from - to)
+        return to + CGFloat((x0 + (Double(v0) + omega * x0) * t) * exp(-omega * t))
+    }
+
+    private func speed(_ from: CGFloat, _ to: CGFloat, _ v0: CGFloat, _ t: Double) -> CGFloat {
+        let x0 = Double(from - to)
+        return CGFloat((Double(v0) - omega * (Double(v0) + omega * x0) * t) * exp(-omega * t))
+    }
+
+    func frame(from: Rect, to: Rect, v0: RectVelocity, _ t: Double) -> Rect {
+        let t = max(0, t)
+        return Rect(
+            topLeftX: position(from.topLeftX, to.topLeftX, v0.x, t),
+            topLeftY: position(from.topLeftY, to.topLeftY, v0.y, t),
+            width: position(from.width, to.width, v0.width, t),
+            height: position(from.height, to.height, v0.height, t),
+        )
+    }
+
+    func velocity(from: Rect, to: Rect, v0: RectVelocity, _ t: Double) -> RectVelocity {
+        let t = max(0, t)
+        return RectVelocity(
+            x: speed(from.topLeftX, to.topLeftX, v0.x, t),
+            y: speed(from.topLeftY, to.topLeftY, v0.y, t),
+            width: speed(from.width, to.width, v0.width, t),
+            height: speed(from.height, to.height, v0.height, t),
+        )
+    }
+
+    /// Within half a point of the target and moving less than half a point per 144Hz frame, or out of time
+    func isSettled(from: Rect, to: Rect, v0: RectVelocity, _ t: Double) -> Bool {
+        if t * omega >= 12 { return true } // e^-12: nothing left to see, whatever the start velocity
+        let f = frame(from: from, to: to, v0: v0, t)
+        let v = velocity(from: from, to: to, v0: v0, t)
+        let offsets = [f.topLeftX - to.topLeftX, f.topLeftY - to.topLeftY, f.width - to.width, f.height - to.height]
+        let speeds = [v.x, v.y, v.width, v.height]
+        return offsets.allSatisfy { abs($0) < 0.5 } && speeds.allSatisfy { abs($0) < 0.5 * 144 }
     }
 }
 

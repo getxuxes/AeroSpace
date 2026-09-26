@@ -69,6 +69,14 @@ struct FocusFollowsMouse: ConvenienceMutable {
 struct Animations: ConvenienceMutable, Equatable, Sendable {
     var enabled: Bool = false
     var durationMs: Int = 120
+    var curve: AnimationCurve = .easeOut
+}
+
+enum AnimationCurve: String, Equatable, Sendable, CaseIterable {
+    /// Ease-out cubic over duration-ms
+    case easeOut = "ease-out"
+    /// A critically damped spring that settles in about duration-ms. An interrupted animation keeps its velocity
+    case spring
 }
 
 enum ConfigVersion: Int, Comparable, CaseIterable, Sendable, CustomStringConvertible {

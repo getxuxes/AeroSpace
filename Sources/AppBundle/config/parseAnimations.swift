@@ -1,6 +1,7 @@
 private let animationsParserTable: [String: any ParserProtocol<Animations>] = [
     "enabled": Parser(\.enabled, parseBool),
     "duration-ms": Parser(\.durationMs, parseAnimationDuration),
+    "curve": Parser(\.curve, parseAnimationCurve),
 ]
 
 func parseAnimations(_ rawConfig: OrderedJson, _ backtrace: ConfigBacktrace, _ c: inout ConfigParserContext) -> Animations {
@@ -10,5 +11,12 @@ func parseAnimations(_ rawConfig: OrderedJson, _ backtrace: ConfigBacktrace, _ c
 private func parseAnimationDuration(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ResOrConfigParseDiagnostic<Int> {
     parseInt(raw, backtrace).flatMap {
         (0 ... 2000).contains($0) ? .success($0) : .failure(.init(backtrace, "duration-ms must be in range 0..2000"))
+    }
+}
+
+private func parseAnimationCurve(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ResOrConfigParseDiagnostic<AnimationCurve> {
+    parseString(raw, backtrace).flatMap {
+        AnimationCurve(rawValue: $0).map { .success($0) }
+            ?? .failure(.init(backtrace, "curve must be one of: \(AnimationCurve.allCases.map(\.rawValue).joined(separator: ", "))"))
     }
 }
