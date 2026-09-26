@@ -7,6 +7,8 @@ import QuartzCore
 ///
 /// - `link+ <time> <displayId> <fps>` / `link- <time> <displayId>`: a screen's display link started/stopped
 /// - `tick <time> <displayId> <vsyncTimestamp>`: a display link tick on the main thread
+/// - `frame <time> <windowId> x y w h`: the frame the animator meant the window to have (every tick, or the target of a
+///   frame set without animation). `end <time> <windowId>`: an animation was cancelled
 /// - `job <queuedAt> <start> <end> <thread> <site>`: any job on an app's AX thread (what else keeps it busy), `site` is
 ///   the function that queued it
 /// - `ax <queuedAt> <start> <end> <windowId> <p|ps|so>`: an animated AX write on the app's AX thread. `p`: position only,
@@ -28,6 +30,10 @@ final class AnimationStats: Sendable {
     func log(_ line: String) {
         let data = Data((line + "\n").utf8)
         lock.withLock { file.write(data) }
+    }
+
+    func logFrame(_ windowId: UInt32, _ r: Rect) {
+        log("frame \(CACurrentMediaTime()) \(windowId) \(r.topLeftX) \(r.topLeftY) \(r.width) \(r.height)")
     }
 
     func logJob(queuedAt: CFTimeInterval, start: CFTimeInterval, site: StaticString) {

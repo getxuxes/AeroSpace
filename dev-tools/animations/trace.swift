@@ -128,6 +128,15 @@ for (index, frame) in frames.enumerated() {
     print(String(format: "f%03d %@  GAPS: %@", index, windows.joined(separator: " "), gaps.isEmpty ? "none" : gaps.joined(separator: " ")))
 }
 printStats()
+// Raw samples for lag.swift: "S <time>" and one "<id> x y w h" line per window
+if let path = ProcessInfo.processInfo.environment["TRACE_RAW"] {
+    var raw = ""
+    for (index, frame) in frames.enumerated() {
+        raw += "S \(times[index])\n"
+        for (id, r) in frame { raw += "\(id) \(r.minX) \(r.minY) \(r.width) \(r.height)\n" }
+    }
+    try? raw.write(toFile: path, atomically: true, encoding: .utf8)
+}
 lock.unlock()
 
 // ---- Machine-readable summary (benchmark.sh, report.sh) ----
@@ -143,6 +152,7 @@ lock.unlock()
 //   gap_frames    frames with gap >= 2pt
 //   mon_flips     most times one window's majority monitor changed (1 for a move between monitors, more is a bounce)
 //   wrong_mon     frames where a window was mostly on a monitor that is neither where it started nor where it ended
+//   move_frames / resize_frames  changed frames where only positions changed / where some window changed size
 //   max_step      largest move of any edge between two consecutive frames (pt), for windows on a monitor in both. A
 //                 window that jumps instead of sliding shows the whole distance here
 //   trace_missed  vsyncs the tracer itself missed (the measurement is less precise if > 0)
@@ -203,6 +213,18 @@ func printStats() {
     var firstChange: Int? = nil
     var lastChange: Int? = nil
     var maxStep: CGFloat = 0
+    // Frames where some window changed: did any (managed) window change size, or only positions?
+    var resizeFrames = 0
+    var moveFrames = 0
+    for index in 1 ..< frames.count {
+        var moved = false, resized = false
+        for (id, now) in frames[index] where managed?.contains(id) ?? true {
+            guard let before = frames[index - 1][id], now != before,
+                  majorityMonitor(now) != nil, majorityMonitor(before) != nil else { continue }
+            if abs(now.width - before.width) >= 1 || abs(now.height - before.height) >= 1 { resized = true } else { moved = true }
+        }
+        if resized { resizeFrames += 1 } else if moved { moveFrames += 1 }
+    }
     var monFlips = 0
     var wrongMon = 0
     for id in ids {
@@ -265,8 +287,8 @@ func printStats() {
     }
     let animMs = firstChange.flatMap { a in lastChange.map { b in (times[b] - times[a]) * 1000 } } ?? 0
     print(String(
-        format: "STATS anim_ms=%.1f changes=%d ft_p50=%.2f ft_p95=%.2f ft_max=%.2f dropped=%d gap_max=%.0f gap_frames=%d mon_flips=%d wrong_mon=%d max_step=%.0f trace_missed=%d",
-        animMs, frameTimes.count, percentile(0.5), percentile(0.95), frameTimes.last ?? 0, dropped, gapMax, gapFrames, monFlips, wrongMon, maxStep, traceMissed,
+        format: "STATS anim_ms=%.1f changes=%d ft_p50=%.2f ft_p95=%.2f ft_max=%.2f dropped=%d gap_max=%.0f gap_frames=%d mon_flips=%d wrong_mon=%d max_step=%.0f move_frames=%d resize_frames=%d trace_missed=%d",
+        animMs, frameTimes.count, percentile(0.5), percentile(0.95), frameTimes.last ?? 0, dropped, gapMax, gapFrames, monFlips, wrongMon, maxStep, moveFrames, resizeFrames, traceMissed,
     ))
     print("FT " + frameTimes.map { String(format: "%.2f", $0) }.joined(separator: ","))
 }

@@ -38,8 +38,8 @@ func traces(_ dir: URL) -> [String: [TraceRun]] {
         let name = String(file.dropLast(".trace".count).split(separator: "-").dropLast().joined(separator: "-"))
         var run = TraceRun()
         for line in (read(dir.appending(path: file)) ?? "").split(separator: "\n") {
-            if line.hasPrefix("STATS ") {
-                for pair in line.dropFirst(6).split(separator: " ") {
+            if line.hasPrefix("STATS ") || line.hasPrefix("LAG ") {
+                for pair in line.split(separator: " ").dropFirst() {
                     let kv = pair.split(separator: "=")
                     if kv.count == 2, let v = Double(kv[1]) { run.stats[String(kv[0])] = v }
                 }
@@ -144,9 +144,11 @@ func pair(_ a: String, _ b: String) -> String { "\(a) / \(b)" }
 
 print("## Por escenario: \(labelA) / \(labelB)\n")
 print("Repeticiones agrupadas. Tiempo de frame = intervalo entre cambios visibles de una ventana en movimiento (WindowServer).")
-print("Frames perdidos = media por repetición. Hueco = lado del mayor cuadrado sin cubrir, peor repetición (mediana entre paréntesis).\n")
-print("| Escenario | Reps | Frame p50 ms | Frame p95 ms | Frame máx ms | Frames perdidos | Hueco máx pt | Frames con hueco | Paso máx pt | Cambio de monitor (flips/frames mal) | Duración ms | Estado final |")
-print("|---|---|---|---|---|---|---|---|---|---|---|---|")
+print("Frames perdidos = media por repetición. Hueco = lado del mayor cuadrado sin cubrir, peor repetición (mediana entre paréntesis).")
+print("Hueco total: todo lo que se ve detrás. Hueco no previsto: lo que los marcos interpolados cubrían (enviados hace ≥ 1 vsync) y la ventana real no, porque va con retraso.")
+print("Resize %: de los frames con cambios, en cuántos cambió el tamaño de alguna ventana (el resto solo movieron).\n")
+print("| Escenario | Reps | Frame p50 ms | Frame p95 ms | Frame máx ms | Frames perdidos | Hueco total pt | Hueco no previsto pt | Resize % | Paso máx pt | Cambio de monitor (flips/frames mal) | Duración ms | Estado final |")
+print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
 for name in scenarios {
     let a = tracesA[name], b = tracesB[name]
     let ftA = (a ?? []).flatMap(\.frameTimes), ftB = (b ?? []).flatMap(\.frameTimes)
@@ -154,11 +156,14 @@ for name in scenarios {
         let d = stat(runs, "dropped")
         return d.isEmpty ? "—" : fmt(d.reduce(0, +) / Double(d.count))
     }
-    func gap(_ runs: [TraceRun]?) -> String {
-        let g = stat(runs, "gap_max")
+    func lagGap(_ runs: [TraceRun]?, _ key: String) -> String {
+        let g = stat(runs, key)
         return g.isEmpty ? "—" : "\(fmt(g.max(), 0)) (\(fmt(median(g), 0)))"
     }
-    func gapFrames(_ runs: [TraceRun]?) -> String { fmt(median(stat(runs, "gap_frames")), 0) }
+    func resizeShare(_ runs: [TraceRun]?) -> String {
+        let r = stat(runs, "resize_frames").reduce(0, +), m = stat(runs, "move_frames").reduce(0, +)
+        return r + m == 0 ? "—" : fmt(100 * r / (r + m), 0)
+    }
     func monitors(_ runs: [TraceRun]?) -> String {
         "\(fmt(stat(runs, "mon_flips").max(), 0))/\(fmt(stat(runs, "wrong_mon").max(), 0))"
     }
@@ -179,7 +184,7 @@ for name in scenarios {
     var final = deltas.isEmpty ? "—" : differing == 0 ? "idéntico" : "\(differing)/\(deltas.count) " + describe(deltas.contains { $0 == nil } ? nil : deltas.compactMap { $0 }.max())
     if baselineSpread.map({ $0 > 1 }) ?? true { final += " (\(labelB) no determinista: \(describe(baselineSpread)))" }
     let reps = pair("\(a?.count ?? 0)", "\(b?.count ?? 0)")
-    print("| \(name) | \(reps) | \(pair(fmt(percentile(ftA, 0.5), 2), fmt(percentile(ftB, 0.5), 2))) | \(pair(fmt(percentile(ftA, 0.95), 2), fmt(percentile(ftB, 0.95), 2))) | \(pair(fmt(ftA.max(), 1), fmt(ftB.max(), 1))) | \(pair(dropped(a), dropped(b))) | \(pair(gap(a), gap(b))) | \(pair(gapFrames(a), gapFrames(b))) | \(pair(fmt(stat(a, "max_step").max(), 0), fmt(stat(b, "max_step").max(), 0))) | \(pair(monitors(a), monitors(b))) | \(pair(fmt(median(stat(a, "anim_ms")), 0), fmt(median(stat(b, "anim_ms")), 0))) | \(final) |")
+    print("| \(name) | \(reps) | \(pair(fmt(percentile(ftA, 0.5), 2), fmt(percentile(ftB, 0.5), 2))) | \(pair(fmt(percentile(ftA, 0.95), 2), fmt(percentile(ftB, 0.95), 2))) | \(pair(fmt(ftA.max(), 1), fmt(ftB.max(), 1))) | \(pair(dropped(a), dropped(b))) | \(pair(lagGap(a, "gap_total"), lagGap(b, "gap_total"))) | \(pair(lagGap(a, "gap_unexpected"), lagGap(b, "gap_unexpected"))) | \(pair(resizeShare(a), resizeShare(b))) | \(pair(fmt(stat(a, "max_step").max(), 0), fmt(stat(b, "max_step").max(), 0))) | \(pair(monitors(a), monitors(b))) | \(pair(fmt(median(stat(a, "anim_ms")), 0), fmt(median(stat(b, "anim_ms")), 0))) | \(final) |")
 }
 
 for (label, dir) in [(labelA, dirA), (labelB, dirB)] {

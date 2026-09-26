@@ -52,7 +52,10 @@ echo "== Building tools, this branch, and a main worktree (debug) =="
 [ -d "$wt" ] || git worktree add --detach "$wt" main
 git -C "$wt" checkout -q --detach main || exit 1
 echo "main worktree at $(git -C "$wt" rev-parse --short HEAD)"
-(cd "$wt" && ./build-debug.sh >/dev/null) || { echo "main build failed"; exit 1; }
+# Measurement only: main logs the same frames/ticks as this branch (AEROSPACE_ANIMATION_STATS). Removed after the build
+git -C "$wt" apply "$tools/main-instrumentation.patch" || { echo "main-instrumentation.patch doesn't apply to main"; exit 1; }
+(cd "$wt" && ./build-debug.sh >/dev/null) || { echo "main build failed"; git -C "$wt" checkout -q . ; git -C "$wt" clean -fdq; exit 1; }
+git -C "$wt" checkout -q . && git -C "$wt" clean -fdq
 
 srvpid=""
 stop_server() {

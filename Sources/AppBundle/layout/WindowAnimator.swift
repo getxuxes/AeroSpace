@@ -24,6 +24,7 @@ final class WindowAnimator {
         guard settings.enabled, settings.durationMs > 0, let macWindow = window as? MacWindow,
               let from = running?.frame(at: now) ?? prevRect, !from.isClose(to: target)
         else {
+            AnimationStats.shared?.logFrame(window.windowId, target)
             window.setAxFrame(target.topLeftCorner, target.size)
             return
         }
@@ -72,6 +73,7 @@ final class WindowAnimator {
     /// Returns the size to restore if the animation left the window bigger than it looks
     func cancel(_ windowId: UInt32) -> CGSize? {
         guard let animation = animations.removeValue(forKey: windowId) else { return nil }
+        AnimationStats.shared?.log("end \(CACurrentMediaTime()) \(windowId)")
         EnhancedUiHold.shared.release(animation.window.macApp, windowId)
         reconcileDisplayLinks()
         guard animation.isSetUp, animation.sticksOut else { return nil }
@@ -111,6 +113,7 @@ final class WindowAnimator {
             }
             let isFinished = animation.progress(at: now) >= 1
             let frame = animation.frame(at: now)
+            AnimationStats.shared?.logFrame(windowId, frame)
             if !isFinished && !animation.isSetUp && animation.sticksOut {
                 let size = animation.sizeToSend(frame)
                 // Apps round the frame to whole points: 3 points are enough to stick out for sure

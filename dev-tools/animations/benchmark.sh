@@ -174,16 +174,22 @@ run() {
         "$setup"
         wait_settled
         local before; before=$(log_size)
-        "$bin/trace" all "$secs" h "$(managed_csv)" > "$out/$name-$rep.trace" 2>/dev/null &
+        TRACE_RAW="$out/$name-$rep.raw" "$bin/trace" all "$secs" h "$(managed_csv)" > "$out/$name-$rep.trace" 2>/dev/null &
         local tracepid=$!
         sleep 0.1
         "$action"
         wait "$tracepid"
         wait_settled
         "$bin/geom" "$(tracked_csv)" > "$out/$name-$rep.geom"
-        if [ -n "$stats_log" ] && [ -f "$stats_log" ]; then tail -c +$((before + 1)) "$stats_log" >> "$out/$name.ax"; fi
+        if [ -n "$stats_log" ] && [ -f "$stats_log" ]; then
+            tail -c +$((before + 1)) "$stats_log" > "$out/$name-$rep.ax"
+            cat "$out/$name-$rep.ax" >> "$out/$name.ax"
+        fi
+        # Split the gaps into planned and unexpected (lag), with the frames the animator sent
+        [ -f "$out/$name-$rep.ax" ] && "$bin/lag" "$out/$name-$rep.raw" "$out/$name-$rep.ax" "$(managed_csv)" >> "$out/$name-$rep.trace"
+        rm -f "$out/$name-$rep.raw" "$out/$name-$rep.ax"
         "$teardown"
-        echo "  $name #$rep: $(grep '^STATS' "$out/$name-$rep.trace" | cut -c7-)"
+        echo "  $name #$rep: $(grep '^STATS' "$out/$name-$rep.trace" | cut -c7-) $(grep '^LAG' "$out/$name-$rep.trace" | cut -c5-)"
     done
 }
 none() { :; }
