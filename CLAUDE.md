@@ -93,13 +93,29 @@ Take `echo` as the reference: `EchoCmdArgs.swift`, `EchoCommand.swift`, `EchoCom
 
 ## Window animations and window behavior
 
-`WindowAnimator.swift` animates windows by writing frames over AX, and the WindowServer applies moves and resizes at
-different times. Before you change animations, or debug anything visual (gaps, flicker, windows that jump), read
-`dev-tools/animations/README.md`.
+`WindowAnimator.swift` animates windows by writing frames over AX, ticked by one display link per screen, and the
+WindowServer applies moves and resizes at different times. Before you change animations, or debug anything visual (gaps,
+flicker, windows that jump), read `dev-tools/animations/README.md`.
 - It records the facts already measured (why a window that grows to the left uncovers what is behind it, when macOS
   trims a resize, separate Spaces, the 3pt push, the per-app AX thread). It also lists what was tried and rejected.
-- Measure with its tools (`trace`, `probe`), not by eye.
-- Compare against `main` built the same way, with exactly one AeroSpace server running.
+- Measured ceilings: moves reach every vsync (p50 ~7 ms at 144Hz); a resize can't be faster than the app redraws (Zen
+  5–17 ms, Ghostty ~8, TextEdit ~9), and gaps between tiles are a slow neighbour lagging behind. macOS's own tiling
+  animation has the same limits.
+- Rejected, don't propose again: SkyLight window moves (nothing moves from our process on macOS 27), AXFrame (not
+  writable), pushing windows off-screen, animating screenshots, an opaque backdrop, tiles that jump, moving now and
+  resizing at the end, triggering macOS's Move & Resize.
+- With `[animations] enabled = false` behavior must stay identical to `main`: guard every change behind the setting.
+
+Measure with its tools, not by eye:
+- `dev-tools/animations/ab-compare.sh [suites] [reps]` builds this branch and a `main` worktree, quits the installed
+  AeroSpace, runs `benchmark.sh` against each build, reopens AeroSpace and writes `out/<date>-ab/report.md`: frame time,
+  dropped frames, total and unexpected gaps, resize share, velocity jumps, monitor flips, final state per scenario.
+  `BENCH_ONLY='regex'` runs a subset; `AB_B=branch AB_B_ANIMATIONS="…"` compares two configs of the branch.
+- It needs the windows it acts on open (2 Ghostty, 2 Zen, 2 TextEdit, Discord, Finder) and nobody touching the input.
+  Don't build or edit its scripts while it runs.
+- Servers log with `AEROSPACE_ANIMATION_STATS=<file>` (`AnimationStats.swift`); `main` gets the same logs from
+  `main-instrumentation.patch` during the build only.
+- Repeat a suspicious case ≥10 times on both builds before calling it a regression: 2/3 vs 0/3 isn't a difference.
 - Test the user's real key bindings (their commands run in one batch), vertical and horizontal layouts, and moves
   between monitors.
 
