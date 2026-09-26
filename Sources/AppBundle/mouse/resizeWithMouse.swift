@@ -27,8 +27,11 @@ func resizedObs(_: AXObserver, ax: AXUIElement, notif: CFString, _: UnsafeMutabl
 
 @MainActor
 func resetManipulatedWithMouseIfPossible() async throws {
-    if currentlyManipulatedWithMouseWindowId != nil {
+    if let windowId = currentlyManipulatedWithMouseWindowId {
         currentlyManipulatedWithMouseWindowId = nil
+        // resizeWithMouse keeps this rect frozen at the pre-resize tile to compute the weight diff on every tick.
+        // Clear it now, otherwise the final layout animates from that stale rect instead of jumping straight to place
+        Window.get(byId: windowId)?.lastAppliedLayoutPhysicalRect = nil
         for workspace in Workspace.all {
             workspace.resetResizeWeightBeforeResizeRecursive()
         }
