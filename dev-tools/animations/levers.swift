@@ -12,6 +12,8 @@
 //   enhui     Cost of toggling AXEnhancedUserInterface, and hold-off-once vs toggle-per-write over an animation. (Lever 2)
 //   settle    After one size write, how long until the WindowServer bounds reach the target. Per app. (Lever 4)
 //   vsync     Jitter of a CVDisplayLink loop vs a usleep(1/fps) timer loop vs true vsync. No window needed. (Lever 3)
+//   focus     What AeroSpace's nativeFocus costs (AXMain + AXRaise + activate) with AXEnhancedUserInterface on vs off,
+//             and whether a setPos from another thread waits for a raise in progress (the app answers AX serially)
 import AppKit
 import ApplicationServices
 import CoreVideo
@@ -86,6 +88,14 @@ func axFrame(_ w: AXUIElement) -> CGRect {
     return CGRect(origin: p, size: s)
 }
 func sleepMs(_ ms: Double) { usleep(UInt32(ms * 1000)) }
+func enhancedUi(_ app: AXUIElement) -> Bool {
+    var v: CFTypeRef?
+    AXUIElementCopyAttributeValue(app, "AXEnhancedUserInterface" as CFString, &v)
+    return (v as? Bool) == true
+}
+func setEnhancedUi(_ app: AXUIElement, _ on: Bool) {
+    AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, on ? kCFBooleanTrue : kCFBooleanFalse)
+}
 
 switch experiment {
     case "vsync":
@@ -180,6 +190,8 @@ switch experiment {
         let wid = CGWindowID(args[1])!
         guard let (w, app, _) = findAxWindow(wid) else { print("window not found"); exit(1) }
         AXUIElementSetMessagingTimeout(w, 2)
+        let originalEnhancedUi = enhancedUi(app)
+        defer { setEnhancedUi(app, originalEnhancedUi) }
         // Cost of one get and one set of AXEnhancedUserInterface
         var getD: [Double] = [], setD: [Double] = []
         for _ in 0 ..< 40 {
@@ -221,6 +233,8 @@ switch experiment {
         let wid = CGWindowID(args[1])!
         guard let (w, app, _) = findAxWindow(wid) else { print("window not found"); exit(1) }
         AXUIElementSetMessagingTimeout(w, 2)
+        let originalEnhancedUi = enhancedUi(app)
+        defer { setEnhancedUi(app, originalEnhancedUi) }
         AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
         let base = axFrame(w)
         var settle: [Double] = []
@@ -243,6 +257,52 @@ switch experiment {
         print(stats("size settle (write -> WS shows new width)", ok))
         print("timeouts(>200ms): \(settle.count(where: { $0.isNaN }))/\(settle.count)")
 
+    case "focus":
+        let wid = CGWindowID(args[1])!
+        guard let (w, app, pid) = findAxWindow(wid) else { print("window not found"); exit(1) }
+        AXUIElementSetMessagingTimeout(w, 2)
+        let originalEnhancedUi = enhancedUi(app)
+        defer { setEnhancedUi(app, originalEnhancedUi) }
+        print("AXEnhancedUserInterface originally \(originalEnhancedUi ? "on" : "off")")
+        let nsApp = NSRunningApplication(processIdentifier: pid)
+        // Another app goes to the front in between, so every raise really has to raise
+        let other = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == "com.apple.finder" }
+        func focusOnce() -> Double {
+            other?.activate()
+            sleepMs(150)
+            let t = now()
+            AXUIElementSetAttributeValue(w, kAXMainAttribute as CFString, kCFBooleanTrue)
+            AXUIElementPerformAction(w, kAXRaiseAction as CFString)
+            nsApp?.activate()
+            return (now() - t) * 1000
+        }
+        for on in [true, false] {
+            setEnhancedUi(app, on)
+            sleepMs(300)
+            let d = (0 ..< 15).map { _ in focusOnce() }
+            print(stats("focus (AXMain+AXRaise+activate), AXEnhancedUserInterface \(on ? "on " : "off")", d))
+        }
+        // Does a setPos from a second thread wait behind a raise in progress?
+        let base = axFrame(w)
+        var waits: [Double] = [], alone: [Double] = []
+        for _ in 0 ..< 15 {
+            other?.activate(); sleepMs(150)
+            let started = DispatchSemaphore(value: 0), done = DispatchSemaphore(value: 0)
+            Thread {
+                started.signal()
+                AXUIElementSetAttributeValue(w, kAXMainAttribute as CFString, kCFBooleanTrue)
+                AXUIElementPerformAction(w, kAXRaiseAction as CFString)
+                done.signal()
+            }.start()
+            started.wait(); sleepMs(2)
+            let t = now(); setPos(w, base.origin); waits.append((now() - t) * 1000)
+            done.wait()
+            sleepMs(50)
+            let t2 = now(); setPos(w, base.origin); alone.append((now() - t2) * 1000)
+        }
+        print(stats("setPos alone                   ", alone))
+        print(stats("setPos while raising elsewhere ", waits))
+
     default:
-        print("unknown experiment. Use: axframe | writedur | enhui | settle | vsync")
+        print("unknown experiment. Use: axframe | writedur | enhui | settle | vsync | focus")
 }
