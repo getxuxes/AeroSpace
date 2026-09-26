@@ -235,8 +235,8 @@ final class ConfigTest: XCTestCase {
             parseConfig("animations.duration-ms = -1").strErrors,
             ["[ERROR] animations.duration-ms: duration-ms must be in range 0..2000"],
         )
-        assertEquals(parseConfig("animations.curve = 'spring'").config.animations.curve, .spring)
-        assertEquals(parseConfig("").config.animations.curve, .easeOut)
+        assertEquals(parseConfig("animations.curve = 'ease-out'").config.animations.curve, .easeOut)
+        assertEquals(parseConfig("").config.animations.curve, .spring)
         assertEquals(
             parseConfig("animations.curve = 'bounce'").strErrors,
             ["[ERROR] animations.curve: curve must be one of: ease-out, spring"],

@@ -420,7 +420,7 @@ AeroSpace can animate tiled windows when the layout changes (`move`, `resize`, `
 [animations]
     enabled = true
     duration-ms = 120
-    curve = 'ease-out' # or 'spring'
+    curve = 'spring' # or 'ease-out'
 ----
 
 Windows are moved step by step via the Accessibility API, so resizing heavy apps may stutter.
@@ -430,9 +430,9 @@ Switching workspaces and moving floating windows are not animated.
 
 `curve`:
 
-* `ease-out` (default): ease-out cubic over `duration-ms`.
-* `spring`: a critically damped spring (no overshoot) that settles in about `duration-ms`. When an animation is interrupted
-by another command, the window keeps its current velocity instead of starting over.
+* `spring` (default): a critically damped spring (no overshoot) that settles in about `duration-ms`. When an animation is
+interrupted by another command, the window keeps its current velocity instead of starting over.
+* `ease-out`: ease-out cubic over `duration-ms`.
 macOS's own window tiling animation follows the same kind of curve over about 300 ms.
 
 [#emulation-of-virtual-workspaces]

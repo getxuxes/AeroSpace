@@ -69,7 +69,7 @@ struct FocusFollowsMouse: ConvenienceMutable {
 struct Animations: ConvenienceMutable, Equatable, Sendable {
     var enabled: Bool = false
     var durationMs: Int = 120
-    var curve: AnimationCurve = .easeOut
+    var curve: AnimationCurve = .spring
 }
 
 enum AnimationCurve: String, Equatable, Sendable, CaseIterable {
