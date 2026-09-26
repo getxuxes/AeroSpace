@@ -4,6 +4,7 @@
 // baseline: the final state must be identical (tolerance 1pt).
 //
 // Usage: report <run-dir-A> <run-dir-B> [labelA] [labelB]     (e.g. out/<date>/branch out/<date>/main branch main)
+import CoreGraphics
 import Foundation
 
 let args = CommandLine.arguments
@@ -59,6 +60,7 @@ struct AxStats {
     var tickMs: [Double] = []
     var tickMissed = 0
     var ticks = 0
+    var jobs: [(ms: Double, site: String, thread: String)] = []
 }
 
 func axStats(_ url: URL) -> AxStats? {
@@ -84,6 +86,11 @@ func axStats(_ url: URL) -> AxStats? {
                     if vsyncs > 1 { s.tickMissed += vsyncs - 1 }
                 }
                 lastTick[f[2]] = t
+            case "job" where f.count >= 6:
+                let start = Double(f[2]) ?? 0, end = Double(f[3]) ?? 0
+                if !f[5].hasPrefix("setAxFrameAnimated") && !f[5].hasPrefix("setAxFrameStickingOut") {
+                    s.jobs.append(((end - start) * 1000, f[5], f[4]))
+                }
             case "ax" where f.count >= 6:
                 let queued = Double(f[1]) ?? 0, start = Double(f[2]) ?? 0, end = Double(f[3]) ?? 0
                 s.waitMs.append((start - queued) * 1000)
@@ -98,20 +105,35 @@ func axStats(_ url: URL) -> AxStats? {
     return s
 }
 
+/// The visible windows of a final layout. Windows hidden in a corner don't count: their size is whatever they had when
+/// they were hidden
 typealias Geom = [String: [Double]]
 func geom(_ url: URL) -> Geom {
+    // Older runs have no v|h column: work it out from the screens the benchmark saved next to it
+    let screens: [CGRect] = (read(url.deletingLastPathComponent().appending(path: "screens.txt")) ?? "").split(separator: "\n").compactMap {
+        let f = $0.split(separator: " ").compactMap { Double($0) }
+        return f.count >= 5 ? CGRect(x: f[1], y: f[2], width: f[3], height: f[4]) : nil
+    }
+    func visible(_ r: [Double]) -> Bool {
+        let rect = CGRect(x: r[0], y: r[1], width: r[2], height: r[3])
+        return screens.map { rect.intersection($0) }.filter { !$0.isNull }.map { $0.width * $0.height }.reduce(0, +) > rect.width * rect.height / 2
+    }
     var g: Geom = [:]
     for line in (read(url) ?? "").split(separator: "\n") {
         let f = line.split(separator: " ").map(String.init)
-        if f.count == 5 { g[f[0]] = f[1...].compactMap(Double.init) }
+        guard f.count >= 5 else { continue }
+        let rect = f[1 ... 4].compactMap(Double.init)
+        guard rect.count == 4 else { continue }
+        if f.count == 6 ? f[5] == "v" : visible(rect) { g[f[0]] = rect }
     }
     return g
 }
-/// Largest coordinate difference between two final layouts, nil if a window is missing in one of them
+/// Largest coordinate difference between two final layouts, nil if the visible windows differ
 func maxDelta(_ a: Geom, _ b: Geom) -> Double? {
     guard Set(a.keys) == Set(b.keys) else { return nil }
     return a.keys.map { id in zip(a[id]!, b[id]!).map { abs($0 - $1) }.max() ?? 0 }.max() ?? 0
 }
+func describe(_ delta: Double?) -> String { delta.map { $0 <= 1 ? "idéntico" : String(format: "difiere %.0fpt", $0) } ?? "difiere (ventanas visibles)" }
 
 let tracesA = traces(dirA)
 let tracesB = traces(dirB)
@@ -140,16 +162,22 @@ for name in scenarios {
     func monitors(_ runs: [TraceRun]?) -> String {
         "\(fmt(stat(runs, "mon_flips").max(), 0))/\(fmt(stat(runs, "wrong_mon").max(), 0))"
     }
-    // Final state: every repetition of both runs against the first repetition of B (the baseline)
-    let baseline = geom(dirB.appending(path: "\(name)-1.geom"))
-    var worst: Double? = 0
-    for dir in [dirA, dirB] {
-        for file in files(dir, ".geom") where file.hasPrefix("\(name)-") && Int(file.dropFirst(name.count + 1).dropLast(".geom".count)) != nil {
-            let d = maxDelta(geom(dir.appending(path: file)), baseline)
-            worst = d.flatMap { d in worst.map { max($0, d) } }
-        }
+    // Final state: repetition i of A against repetition i of B. If B's repetitions differ among themselves, the scenario
+    // isn't deterministic on B either, and a difference doesn't point at A
+    var deltas: [Double?] = []
+    var baselineSpread: Double? = 0
+    let firstB = geom(dirB.appending(path: "\(name)-1.geom"))
+    for rep in 1 ... max(a?.count ?? 0, b?.count ?? 0) {
+        let ga = geom(dirA.appending(path: "\(name)-\(rep).geom"))
+        let gb = geom(dirB.appending(path: "\(name)-\(rep).geom"))
+        if ga.isEmpty || gb.isEmpty { continue }
+        deltas.append(maxDelta(ga, gb))
+        let spread = maxDelta(gb, firstB)
+        baselineSpread = spread.flatMap { s in baselineSpread.map { max($0, s) } }
     }
-    let final = baseline.isEmpty ? "—" : worst.map { $0 <= 1 ? "idéntico" : String(format: "DIFIERE %.0fpt", $0) } ?? "DIFIERE (ventanas)"
+    let differing = deltas.count(where: { $0.map { $0 > 1 } ?? true })
+    var final = deltas.isEmpty ? "—" : differing == 0 ? "idéntico" : "\(differing)/\(deltas.count) " + describe(deltas.contains { $0 == nil } ? nil : deltas.compactMap { $0 }.max())
+    if baselineSpread.map({ $0 > 1 }) ?? true { final += " (\(labelB) no determinista: \(describe(baselineSpread)))" }
     let reps = pair("\(a?.count ?? 0)", "\(b?.count ?? 0)")
     print("| \(name) | \(reps) | \(pair(fmt(percentile(ftA, 0.5), 2), fmt(percentile(ftB, 0.5), 2))) | \(pair(fmt(percentile(ftA, 0.95), 2), fmt(percentile(ftB, 0.95), 2))) | \(pair(fmt(ftA.max(), 1), fmt(ftB.max(), 1))) | \(pair(dropped(a), dropped(b))) | \(pair(gap(a), gap(b))) | \(pair(gapFrames(a), gapFrames(b))) | \(pair(fmt(stat(a, "max_step").max(), 0), fmt(stat(b, "max_step").max(), 0))) | \(pair(monitors(a), monitors(b))) | \(pair(fmt(median(stat(a, "anim_ms")), 0), fmt(median(stat(b, "anim_ms")), 0))) | \(final) |")
 }
@@ -163,10 +191,21 @@ for (label, dir) in [(labelA, dirA), (labelB, dirB)] {
     print("\n## Servidor (\(label)): llamadas AX y ticks del display link\n")
     print("Escritura AX = duración en el hilo AX de la app (pos+tamaño o solo pos). Espera = desde que se encola hasta que empieza.")
     print("Ticks perdidos = vsyncs sin tick en el hilo principal mientras había animación.\n")
+    var axJobRows: [(String, AxStats)] = []
+    defer {
+        print("\nOtros trabajos en los hilos AX (no son escrituras animadas): el más largo y el que más esperó otra cosa.\n")
+        print("| Escenario | Trabajos | Más largo ms | Función (hilo) |")
+        print("|---|---|---|---|")
+        for (name, s) in axJobRows {
+            let top = s.jobs.max { $0.ms < $1.ms }
+            print("| \(name) | \(s.jobs.count) | \(fmt(top?.ms, 1)) | \(top.map { "\($0.site) (\($0.thread))" } ?? "—") |")
+        }
+    }
     print("| Escenario | Escrituras pos+tam | pos+tam p50/p95 ms | Solo pos p50/p95 ms | Espera p50/p95/máx ms | Stick-out | Tick p50/p95 ms | Ticks perdidos |")
     print("|---|---|---|---|---|---|---|---|")
     for file in axFiles {
         guard let s = axStats(dir.appending(path: file)) else { continue }
+        axJobRows.append((String(file.dropLast(3)), s))
         let name = String(file.dropLast(3))
         print("| \(name) | \(s.writeMs.count) | \(fmt(percentile(s.writeMs, 0.5), 2))/\(fmt(percentile(s.writeMs, 0.95), 2)) | \(fmt(percentile(s.posMs, 0.5), 2))/\(fmt(percentile(s.posMs, 0.95), 2)) | \(fmt(percentile(s.waitMs, 0.5), 2))/\(fmt(percentile(s.waitMs, 0.95), 2))/\(fmt(s.waitMs.max(), 1)) | \(s.stickOut) | \(fmt(percentile(s.tickMs, 0.5), 2))/\(fmt(percentile(s.tickMs, 0.95), 2)) | \(s.tickMissed) |")
     }

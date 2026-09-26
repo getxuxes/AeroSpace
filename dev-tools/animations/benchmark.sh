@@ -4,8 +4,9 @@
 # (geom, by role name). If the server was started with AEROSPACE_ANIMATION_STATS=<file>, the part of that log written
 # during each scenario (display link ticks, AX write durations) is saved next to it. report.swift makes the tables.
 #
-# Usage: benchmark.sh <aerospace-cli> <out-dir> <suites> [repetitions] [stats-log]
+# Usage: [BENCH_ONLY='regex'] benchmark.sh <aerospace-cli> <out-dir> <suites> [repetitions] [stats-log]
 #   suites: comma-separated, any of: core layouts apps lifecycle mouse mon
+#   BENCH_ONLY: run only the scenarios whose name matches, e.g. 'lifecycle.close|mouse.drag-.*' 
 #
 # Windows it needs (it finds them by app, and creates the TextEdit documents itself; within an app, roles go by window id,
 # so every server gets the same windows in the same roles):
@@ -158,6 +159,7 @@ log_size() { [ -n "$stats_log" ] && [ -f "$stats_log" ] && stat -f%z "$stats_log
 # run <name> <trace seconds> "<roles>" <setup> <action> [teardown]
 run() {
     local name="$1" secs="$2" roles="$3" setup="$4" action="$5" teardown="${6:-none}"
+    if [ -n "${BENCH_ONLY:-}" ] && ! [[ "$name" =~ ^($BENCH_ONLY)$ ]]; then return; fi
     # shellcheck disable=SC2086
     for rep in $(seq 1 "$reps"); do
         NEW=""

@@ -1,4 +1,5 @@
-// geom: prints the WindowServer bounds of the given windows, one per line, as "name x y w h" (integers).
+// geom: prints the WindowServer bounds of the given windows, one per line, as "name x y w h v|h" (integers; v: most of
+// the window is on a screen, h: hidden in a corner).
 // No screen capture and no Accessibility permission: reads CGWindowList, which reflects the WindowServer's state.
 // Used by benchmark.sh to capture the settled final layout and compare it against main (must be identical).
 //
@@ -30,6 +31,15 @@ if arg == "--screens" {
     exit(0)
 }
 
+// A window counts as visible if most of it is on a screen (AeroSpace hides windows in a corner, mostly off-screen)
+_ = NSApplication.shared
+let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+let screenRects = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: mainHeight - $0.frame.maxY, width: $0.frame.width, height: $0.frame.height) }
+func isVisible(_ r: CGRect) -> Bool {
+    let onScreen = screenRects.map { r.intersection($0) }.filter { !$0.isNull }.map { $0.width * $0.height }.reduce(0, +)
+    return onScreen > r.width * r.height / 2
+}
+
 for item in arg.split(separator: ",") {
     let parts = item.split(separator: "=")
     let name = String(parts[0])
@@ -41,5 +51,5 @@ for item in arg.split(separator: ",") {
         print("\(name) MISSING")
         continue
     }
-    print("\(name) \(Int(r.origin.x.rounded())) \(Int(r.origin.y.rounded())) \(Int(r.size.width.rounded())) \(Int(r.size.height.rounded()))")
+    print("\(name) \(Int(r.origin.x.rounded())) \(Int(r.origin.y.rounded())) \(Int(r.size.width.rounded())) \(Int(r.size.height.rounded())) \(isVisible(r) ? "v" : "h")")
 }
