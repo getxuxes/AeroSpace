@@ -82,11 +82,15 @@ if [ -n "$M2" ]; then
 fi
 opposite() { case "$1" in left) echo right;; right) echo left;; up) echo down;; down) echo up;; esac; }
 echo "monitors: acting=$M1 other=${M2:-none} direction-to-other=${dir_to_other:-none}" | tee "$out/monitors.txt"
+# Monitors are switched by direction: a monitor pattern is a regex on the name, and "2" also matches "PA278CGV (1)"
+to_other() { c focus-monitor "$dir_to_other"; }
+to_acting() { c focus-monitor "$(opposite "$dir_to_other")"; }
 if [ -n "$M2" ]; then
-    c focus-monitor "$M2"; c workspace B2
+    to_other; c workspace B2
     c move-node-to-workspace --window-id "${role[F]}" B2
+    to_acting
 fi
-c focus-monitor "$M1"; c workspace B1
+c workspace B1
 
 # ---------------------------------------------------------------- helpers
 NEW="" # a window created by the scenario (lifecycle)
@@ -126,14 +130,15 @@ layout_roles() {
         local b1mon
         b1mon=$("$cli" list-workspaces --all --format '%{workspace} %{monitor-id}' | awk '$1=="B1" {print $2}')
         if [ -n "$b1mon" ] && [ "$b1mon" != "$M1" ]; then
-            c move-workspace-to-monitor --workspace B1 "$M1" || c move-workspace-to-monitor --workspace B1 "$(opposite "$dir_to_other")"
+            c move-workspace-to-monitor --workspace B1 "$(opposite "$dir_to_other")"
         fi
-        c focus-monitor "$M2"; c workspace B2
+        to_other; c workspace B2
         for id in $(ws_windows B2); do [ "$id" = "${role[F]}" ] || c move-node-to-workspace --window-id "$id" B9; done
         c move-node-to-workspace --window-id "${role[F]}" B2
         c fullscreen off --window-id "${role[F]}"; c layout tiling --window-id "${role[F]}"
     fi
-    c focus-monitor "$M1"; c workspace B1
+    [ -n "$M2" ] && to_acting
+    c workspace B1
     for id in $(ws_windows B1); do contains "$id" "${want[@]}" || c move-node-to-workspace --window-id "$id" B9; done
     for id in "${want[@]}"; do
         c move-node-to-workspace --window-id "$id" B1

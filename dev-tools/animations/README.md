@@ -19,36 +19,45 @@ dev-tools/animations/build.sh     # compiles into dev-tools/animations/.bin (git
 
 | Tool | What it does |
 |---|---|
-| `.bin/trace <ids> <seconds> [h\|v]` | Passive observer. It prints every frame in which a window changed, the ranges of the windows along the axis, and the uncovered ranges (`GAPS`). Only tiles count as covering; `F` marks a floating window. It is safe to run against a real AeroSpace session. |
-| `summarize.sh <trace output>` | `gapFrames>=10pt=N worst=Mpt` for one trace |
+| `.bin/trace <ids\|all> <seconds> [h\|v] [managed ids]` | Passive observer at every vsync. Prints every frame in which a window changed and ends with a `STATS` line (metrics below). `all` follows every on-screen window, including new ones. With `TRACE_RAW=<file>` it also dumps the raw samples for `lag`. Safe to run against a real AeroSpace session |
+| `.bin/lag <raw> <server log> <managed ids>` | Splits the gaps of one trace into planned and unexpected, with the frames the animator sent (`LAG` line), and measures velocity jumps between ticks |
+| `summarize.sh <trace output>` | Old 1D summary: `gapFrames>=10pt=N worst=Mpt` |
 | `scenario-example.sh <cli> <label>` | Traces real actions: a key binding sent as a key event, and moves between monitors. Adapt the window ids at the top |
 | `.bin/probe <id> <experiment> [screen]` | Writes frames over AX in a controlled way and samples the bounds every ~0.2 ms. It fights AeroSpace, so run `aerospace enable off` first and `aerospace enable on` afterwards. The experiments are listed below |
-| `.bin/levers <id> <experiment>` | Measures the AX primitives behind each smoothness lever on one window: `axframe` (is AXFrame writable), `writedur` (setPos/setSize p50/p95), `enhui` (toggle-per-frame vs hold AXEnhancedUserInterface off), `settle` (write→WindowServer latency), `vsync` (CADisplayLink vs a timer loop; needs no window). Needs the terminal's Accessibility permission |
-| `.bin/geom <id,id,…>` | Prints each window's WindowServer bounds as `id x y w h`. No Accessibility needed. Used to capture the settled final layout |
-| `benchmark.sh <cli> <out-dir> [reps] [stats-log]` | Runs a battery of scenarios (3 windows on the focused workspace) against one running server, `reps` times each from a deterministic reset. Per repetition: a trace and the settled final layout (`geom`). With a stats log, also the server's AX write and tick timings of each scenario (`<scenario>.ax`) |
-| `.bin/report <dirA> <dirB> [labelA] [labelB]` | Markdown tables per scenario: frame time p50/p95/max, dropped frames, max gap, monitor flips, duration, final state vs B; and the server's AX write/wait durations and display link ticks |
-| `ab-compare.sh [reps]` | One-shot: builds this branch and a main worktree, runs `benchmark.sh` against each (one server at a time) and writes everything to `out/<date>-ab/` (`report.md`, `ab-compare.log`, `environment.txt`). Moves your windows; don't touch input while it runs |
+| `.bin/levers <id> <experiment>` | Measures AX primitives on one window: `axframe` (is AXFrame writable), `writedur` (setPos/setSize p50/p95), `enhui` (toggle-per-frame vs hold AXEnhancedUserInterface off), `settle` (write→WindowServer latency), `vsync` (CADisplayLink vs a timer loop; needs no window), `focus` (what nativeFocus costs, and whether a setPos from another thread waits for a raise). Needs the terminal's Accessibility permission |
+| `.bin/sls <id> <dx> [steps] [async\|sync\|direct]` | Tries to move another app's window through SkyLight (private `SLSTransaction*` / `SLSMoveWindow`). On macOS 27 nothing moves (see below) |
+| `.bin/native <id> "Window/Move & Resize/Left"` | Presses a menu item over AX and records macOS's own tiling animation: WindowServer bounds per vsync and, with ScreenCaptureKit (Screen Recording permission), the size of the window's surface per frame |
+| `.bin/geom <name=id,…>` / `--screens` | Each window's WindowServer bounds as `name x y w h v\|h` (v: mostly on a screen); `--screens` lists the screens. No Accessibility needed |
+| `.bin/mouse drag x1 y1 x2 y2 ms` | Posts a real mouse drag (for border and window drags) |
+| `benchmark.sh <cli> <out-dir> <suites> [reps] [stats-log]` | Runs the scenario suites (`core layouts apps lifecycle mouse mon real`) against one running server, `reps` times each from a deterministic reset, with windows found by app and role (2 Ghostty, 2 Zen, 2 TextEdit, Discord, Finder or a 3rd Ghostty). `BENCH_ONLY='regex'` runs a subset |
+| `.bin/report <dirA> <dirB> [labelA] [labelB]` | Markdown tables per scenario (see Metrics), final state of the visible windows repetition by repetition, and the server's AX writes, ticks and other AX thread jobs |
+| `ab-compare.sh [suites] [reps]` | One-shot: builds this branch and a main worktree (main gets `main-instrumentation.patch`, measurement only, applied for the build and removed), quits the installed AeroSpace, runs `benchmark.sh` against each build, reopens AeroSpace, and writes everything to `out/<date>-ab/`. `off` also runs `core` with animations disabled on both. `AB_B=branch AB_B_ANIMATIONS="curve = 'spring'"` compares the branch against itself with other settings. Moves your windows and sends keys and mouse events; don't touch input while it runs |
 
 Window ids come from `aerospace list-windows --all`.
 
 ### Metrics
 
-`trace` ends with a `STATS` line (definitions in `trace.swift`, `printStats`):
+`trace` ends with a `STATS` line (definitions in `trace.swift`, `printStats`) and `lag` adds a `LAG` line:
 
 - **Frame time**: the interval between two changes of a moving window's bounds, as the WindowServer shows them. At
-  144Hz a smooth animation is 6.94 ms.
+  144Hz a smooth animation is 6.94 ms. An interval over 250 ms is a pause between two animations, not a frame.
 - **Dropped frames**: vsyncs without a change while the window was still visibly moving (the next step is ≥ 2pt). The
   sub-point tail of the easing doesn't count.
-- **Gap**: 2D. The side of the largest square of a monitor's visible frame that no traced window covers, minus the same
-  in the settled first and last frames (the configured gaps). With separate Spaces a window only covers the monitor
-  that has most of it. This replaces the 1D `GAPS` of `summarize.sh`, which counts a window that leaves the row (e.g.
-  `move down`) as a gap.
-- **Monitor flips / wrong monitor**: how often a window's majority monitor changed (1 for a move between monitors),
-  and frames where it was mostly on a monitor that is neither its start nor its end.
+- **Gaps**, 2D: the side of the largest square of a monitor's visible frame that no window covers. With separate Spaces
+  a window only covers the monitor that has most of it. `lag` splits it: **planned** (not covered even by the frames the
+  animator sent, e.g. windows that cross or leave) and **unexpected** (covered by the frames sent at least 1 vsync
+  earlier, but not by the real windows: a window lags behind). Both servers log the frame they meant on every tick.
+- **Resize %**: of the frames with a change, those where some window changed size (the rest only moved).
+- **Velocity jump**: how much a window's step (pt per 144Hz frame) changes between two consecutive animator ticks. An
+  interrupted animation that restarts at another speed shows up here.
+- **Monitor flips / wrong monitor**: how often a managed window's majority monitor changed (1 for a move between
+  monitors), and frames where it was mostly on a monitor that is neither its start nor its end.
 
 The server logs its side when started with `AEROSPACE_ANIMATION_STATS=<file>` (`AnimationStats.swift`): display link
-ticks and, per animated AX write, the time it waited on the app's AX thread and how long it took. `main` doesn't have
-it.
+ticks, the intended frames, every animated AX write (queue wait and duration) and every other job on the apps' AX
+threads with the function that queued it.
+
+Measure with nothing else going on: a build or an edit to a running script (bash reads scripts as it goes) ruins a run.
 
 ## How to compare two builds
 
@@ -94,6 +103,21 @@ The code relies on these facts; don't re-derive them.
   them in one run loop turn doesn't make them land together (probe `E3`, 2/20).
 - **Each app has one AX thread in AeroSpace.** Ghostty needs ~7–10 ms per resize. When two windows of one app animate
   at once, they share that thread.
+- **The display link fixes moves, not resizes** (ab-compare 2026-09-26). Moves and swaps go from p50 12–14 ms (main,
+  1 change every 2 vsyncs) to ~7 ms (every vsync). With a resize, every window updates as fast as its app redraws: Zen
+  5–17 ms per resize depending on the page, Ghostty ~8, TextEdit ~9, Messages ~70. That is the ceiling, and branch and
+  main tie there.
+- **Gaps between tiles are lag.** A neighbour that resizes slowly falls behind the frame it was sent (unexpected gap);
+  hundreds of points in move/orientation, on main as much as on the branch.
+- **A slow AX call blocks the app's animation.** Closing a window focuses the next one; `nativeFocus` (AXMain + AXRaise +
+  activate) held Zen's AX thread for 219–313 ms in the benchmark (8–15 ms in isolation), the animated writes waited
+  behind it and the window jumped at the end (853 pt unexpected gap in 3/10 closes on main, 5/10 on the branch).
+- **SkyLight moves don't work from our process** (`sls`, macOS 27): `SLSTransactionMoveWindowWithGroup` and
+  `SLSMoveWindow` return no error and move nothing, for Ghostty, Zen, TextEdit and Discord.
+- **macOS's own tiling animation isn't smoother** (`native`): Window > Move & Resize also redraws the app at every size
+  (the window's surface follows the frame; Zen: 15 changes in 376 ms), even its pure moves change on 50–63% of the
+  vsyncs, and it lasts 310–430 ms. Its curve is a critically damped spring (rms 0.012–0.046 vs 0.09–0.15 for ease-out
+  cubic).
 
 ## How the animator uses them
 
@@ -117,6 +141,17 @@ The code relies on these facts; don't re-derive them.
   resizing to floating), the job never started, and the window jumped at the end of the animation, uncovering up to
   ~850pt. Now a queued job takes the latest frame when it runs.
 
+- **Display link tick** (`WindowAnimator`, `DisplayTicker`): one `NSScreen.displayLink` per screen with an animating
+  window, so writes are in phase with each monitor's vsync. A `Task.sleep` timer ran at ~119 fps and off phase.
+- **AXEnhancedUserInterface held off** (`EnhancedUiHold`): turned off once per app for the whole animation instead of
+  around every write (p95 per write 1.7–3.4× lower), restored at the end, and after a crash on the next start
+  (`EnhancedUiRestoreStore`).
+- **Fullscreen** is animated: the animator remembers the fullscreen frame, because a fullscreen window keeps
+  `lastAppliedLayoutPhysicalRect` nil.
+- **Curves** (`[animations] curve`): `ease-out` (default) and `spring`, a critically damped spring that keeps the
+  velocity of the animation it interrupts (velocity jump p95 at an interruption 155 → 45 pt/frame), at the cost of a
+  longer tail (moves p95 14.5 → 20.8 ms).
+
 ## Tried and rejected
 
 - **Position first for every window that shrinks from the left.** The middle tile's left edge ran ahead of the window
@@ -129,6 +164,11 @@ The code relies on these facts; don't re-derive them.
 - **Asking the app for a size a few ms ahead, and ease-in-out.** They flicker, and don't help.
 - **A cover window behind the animated windows.** Not tried: its color can't match the window without capturing the
   screen.
+- **SkyLight transactions to move windows without AX** (the idea from OmniWM). Nothing moves on macOS 27 from our process.
+- **Triggering macOS's own tiling animation** (pressing Window > Move & Resize over AX). It works, but only for fixed
+  halves/quarters, one window at a time, it activates the app (focus changes), lasts 300–430 ms and isn't smoother.
+- **A second AX thread per app for animation writes**, so that a slow `nativeFocus` doesn't block them. Not done: a
+  bigger change, and it isn't shown that the app answers while it's busy; the case is on main too.
 
 ## Open issues
 

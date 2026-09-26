@@ -57,6 +57,10 @@ func majorityMonitor(_ r: CGRect) -> Int? {
     guard let best = areas.indices.max(by: { areas[$0] < areas[$1] }), areas[best] > 0 else { return nil }
     return best
 }
+func isMostlyOnScreen(_ r: CGRect) -> Bool {
+    let onScreen = screens.map { s -> CGFloat in let i = s.frame.intersection(r); return i.isNull ? 0 : i.width * i.height }.reduce(0, +)
+    return onScreen > r.width * r.height / 2
+}
 func clipped(_ rects: [CGRect], _ monitor: Int) -> [CGRect] {
     let area = screens[monitor].visible
     return rects.filter { !separateSpaces || majorityMonitor($0) == monitor }
@@ -93,7 +97,9 @@ func largestSquare(_ monitor: Int, inside: [CGRect]?, covered: [CGRect]) -> CGFl
     return best
 }
 func intended(_ id: UInt32, at t: Double, actual: CGRect) -> CGRect {
-    guard let frames = sent[id], let last = frames.last(where: { $0.time <= t - period }) else { return actual }
+    // A window hidden in a corner (another workspace) is meant to be there: its last frame is from before it was hidden
+    guard isMostlyOnScreen(actual),
+          let frames = sent[id], let last = frames.last(where: { $0.time <= t - period }) else { return actual }
     return last.rect ?? actual // after "end" the window is meant to be where it is
 }
 
