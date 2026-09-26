@@ -35,6 +35,8 @@ open class Window: TreeNode, Hashable {
     func getTitle(_ cm: CancellationMode) async throws -> String { die("Not implemented") }
     func isMacosFullscreen(_ cm: CancellationMode) async throws -> Bool { false }
     func isMacosMinimized(_ cm: CancellationMode) async throws -> Bool { false } // todo replace with enum MacOsWindowNativeState { normal, fullscreen, invisible }
+    func getNativeTabCount(_ cm: CancellationMode) async throws -> Int { 1 }
+    @MainActor func isOnScreen(_ onScreenWindowIds: Set<UInt32>) -> Bool { onScreenWindowIds.contains(windowId) }
     var isHiddenInCorner: Bool { die("Not implemented") }
     @MainActor func nativeFocus() { die("Not implemented") }
     func getAxRect(_ cm: CancellationMode) async throws -> Rect? { die("Not implemented") }
@@ -45,7 +47,7 @@ open class Window: TreeNode, Hashable {
 
 enum LayoutReason: Equatable {
     case standard
-    /// Reason for the cur temp layout is macOS native fullscreen, minimize, or hide
+    /// Reason for the cur temp layout is macOS native fullscreen, minimize, hide, or a background native tab
     case macos(prevParentKind: NonLeafTreeNodeKind)
 }
 

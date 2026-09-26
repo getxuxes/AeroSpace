@@ -310,6 +310,15 @@ final class MacApp: AbstractApp {
         }
     }
 
+    /// The number of tabs in the window's native tab bar. Nil if it has none
+    func getNativeTabCount(_ windowId: UInt32, _ cm: CancellationMode) async throws -> Int? {
+        try await withWindow(windowId, cm) { window, job in
+            window.get(Ax.childrenAttr)?
+                .first { $0.get(Ax.roleAttr) == kAXTabGroupRole }?
+                .get(Ax.tabsAttr)?.count
+        }
+    }
+
     @MainActor
     static func refreshAllAndGetAliveWindowIds(frontmostAppBundleId: String?) async throws -> [MacApp: [UInt32]] {
         for (_, app) in MacApp.allAppsMap { // gc dead apps

@@ -236,6 +236,14 @@ enum Ax {
         getter: { $0 as? Bool },
         setter: { $0 as CFTypeRef },
     )
+    static let childrenAttr = ReadableAttrImpl<[AXUIElement]>(
+        key: kAXChildrenAttribute,
+        getter: { $0 as? [AXUIElement] },
+    )
+    static let tabsAttr = ReadableAttrImpl<[AXUIElement]>(
+        key: kAXTabsAttribute,
+        getter: { $0 as? [AXUIElement] },
+    )
     static let isFocused = ReadableAttrImpl<Bool>(
         key: kAXFocusedAttribute,
         getter: { $0 as? Bool },

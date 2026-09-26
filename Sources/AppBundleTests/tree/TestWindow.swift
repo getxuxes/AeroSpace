@@ -4,6 +4,8 @@ import AppKit
 final class TestWindow: Window, CustomStringConvertible {
     private var _rect: Rect?
     var isMacosFullscreenForTest = false
+    var isOnScreenForTest = true
+    var nativeTabCountForTest = 1
 
     @MainActor
     private init(_ id: UInt32, _ parent: NonLeafTreeNodeObject, _ adaptiveWeight: CGFloat, _ rect: Rect?) {
@@ -48,4 +50,6 @@ final class TestWindow: Window, CustomStringConvertible {
     }
 
     override func isMacosFullscreen(_ cm: CancellationMode) async throws -> Bool { isMacosFullscreenForTest }
+    override func getNativeTabCount(_ cm: CancellationMode) async throws -> Int { nativeTabCountForTest }
+    @MainActor override func isOnScreen(_ onScreenWindowIds: Set<UInt32>) -> Bool { isOnScreenForTest }
 }
