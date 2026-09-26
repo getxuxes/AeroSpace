@@ -181,7 +181,7 @@ final class MacApp: AbstractApp {
     }
 
     /// Enters "animation mode": turns AXEnhancedUserInterface off once (if it was on) so it isn't toggled around every
-    /// frame write. Reports on the main actor whether it was on, so EnhancedUiHold can persist it for a crash-safe restore.
+    /// frame write. Reports on the main actor whether it was on, so EnhancedUiHold knows whether to restore it.
     func disableEnhancedUiForAnimation(_ onDone: @escaping @Sendable @MainActor (_ wasEnabled: Bool) -> ()) {
         let didRun = thread?.runInLoopAsync(job: RunLoopJob(.nonCancellable)) { [axApp] job in
             let wasEnabled = axApp.threadGuarded.get(Ax.enhancedUserInterfaceAttr) == true

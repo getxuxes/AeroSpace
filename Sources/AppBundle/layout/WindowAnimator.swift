@@ -28,12 +28,15 @@ final class WindowAnimator {
             window.setAxFrame(target.topLeftCorner, target.size)
             return
         }
+        let screen = NSScreen.screens.first { $0.frame.monitorFrameNormalized().contains(target.center) }
+        let frameInterval = 1.0 / Double(max(screen?.maximumFramesPerSecond ?? 60, 30))
         animations[window.windowId] = FrameAnimation(
             window: macWindow,
+            displayId: screen?.displayId ?? CGMainDisplayID(),
             from: from,
             to: target,
             // Start one tick ahead. Otherwise, the first frame is sent at the start position and doesn't move anything
-            startTime: now - frameInterval(target),
+            startTime: now - frameInterval,
             duration: Double(settings.durationMs) / 1000,
             curve: settings.curve,
             // An interrupted animation continues with the velocity it had (only the spring can take it)
@@ -41,7 +44,7 @@ final class WindowAnimator {
             lastSentSize: running?.lastSentSize ?? from.size,
         )
         EnhancedUiHold.shared.retain(macWindow.macApp, window.windowId)
-        tick()
+        step(window.windowId, at: now)
         reconcileDisplayLinks()
     }
 
@@ -69,12 +72,19 @@ final class WindowAnimator {
     }
 
     /// Fired by a screen's CADisplayLink on the main run loop. Ticks only the windows on that screen.
-    fileprivate func displayTick(_ displayId: CGDirectDisplayID) { tick(onlyDisplay: displayId) }
+    fileprivate func displayTick(_ displayId: CGDirectDisplayID) {
+        let now = CACurrentMediaTime()
+        var anyEnded = false
+        for (windowId, animation) in animations where animation.displayId == displayId {
+            if !step(windowId, at: now) { anyEnded = true }
+        }
+        if anyEnded { reconcileDisplayLinks() }
+    }
 
     /// Ensures exactly one running CADisplayLink per screen that currently has an animating window, and none for the rest.
     private func reconcileDisplayLinks() {
         var active = Set<CGDirectDisplayID>()
-        for (_, animation) in animations { active.insert(displayId(for: animation.to)) }
+        for (_, animation) in animations { active.insert(animation.displayId) }
         for (id, entry) in displayLinks where !active.contains(id) {
             entry.link.invalidate()
             displayLinks.removeValue(forKey: id)
@@ -90,34 +100,29 @@ final class WindowAnimator {
         }
     }
 
-    private func tick(onlyDisplay: CGDirectDisplayID? = nil) {
-        let now = CACurrentMediaTime()
-        for (windowId, animation) in animations {
-            if let onlyDisplay, displayId(for: animation.to) != onlyDisplay { continue }
-            if windowId == currentlyManipulatedWithMouseWindowId {
-                animations.removeValue(forKey: windowId)
-                EnhancedUiHold.shared.release(animation.window.macApp, windowId)
-                continue
-            }
-            let isFinished = animation.isFinished(at: now)
-            let frame = animation.frame(at: now)
-            AnimationStats.shared?.logFrame(windowId, frame)
-            // Resizing is expensive for apps (they have to re-layout). Don't resize if the size barely changed
-            let sizeChanged = abs(frame.width - animation.lastSentSize.width) >= 1 || abs(frame.height - animation.lastSentSize.height) >= 1
-            let size: CGSize? = isFinished || sizeChanged ? frame.size : nil
-            animation.window.macApp.setAxFrameAnimated(windowId, frame.topLeftCorner, size)
-            if isFinished {
-                animations.removeValue(forKey: windowId)
-                EnhancedUiHold.shared.release(animation.window.macApp, windowId)
-            } else if let size {
-                animations[windowId]?.lastSentSize = size
-            }
+    /// Sends the window's frame for `time`. Returns false if the animation ended
+    @discardableResult
+    private func step(_ windowId: UInt32, at time: CFTimeInterval) -> Bool {
+        guard let animation = animations[windowId] else { return false }
+        if windowId == currentlyManipulatedWithMouseWindowId {
+            animations.removeValue(forKey: windowId)
+            EnhancedUiHold.shared.release(animation.window.macApp, windowId)
+            return false
         }
-        reconcileDisplayLinks()
-    }
-
-    private func displayId(for rect: Rect) -> CGDirectDisplayID {
-        NSScreen.screens.first { $0.frame.monitorFrameNormalized().contains(rect.center) }?.displayId ?? CGMainDisplayID()
+        let isFinished = animation.isFinished(at: time)
+        let frame = animation.frame(at: time)
+        AnimationStats.shared?.logFrame(windowId, frame)
+        // Resizing is expensive for apps (they have to re-layout). Don't resize if the size barely changed
+        let sizeChanged = abs(frame.width - animation.lastSentSize.width) >= 1 || abs(frame.height - animation.lastSentSize.height) >= 1
+        let size: CGSize? = isFinished || sizeChanged ? frame.size : nil
+        animation.window.macApp.setAxFrameAnimated(windowId, frame.topLeftCorner, size)
+        if isFinished {
+            animations.removeValue(forKey: windowId)
+            EnhancedUiHold.shared.release(animation.window.macApp, windowId)
+            return false
+        }
+        if let size { animations[windowId]?.lastSentSize = size }
+        return true
     }
 }
 
@@ -143,17 +148,10 @@ extension NSScreen {
     }
 }
 
-/// Refresh interval of the screen that contains the rect. Ticking that often doesn't flood apps with AX requests:
-/// a not yet applied frame is cancelled by the next one in MacApp.setAxFrame
-@MainActor
-private func frameInterval(_ rect: Rect?) -> CFTimeInterval {
-    let screen = rect.flatMap { rect in NSScreen.screens.first { $0.frame.monitorFrameNormalized().contains(rect.center) } }
-    let fps = screen?.maximumFramesPerSecond ?? 60
-    return 1.0 / Double(max(fps, 30))
-}
-
 private struct FrameAnimation {
     let window: MacWindow
+    /// The screen whose display link ticks the animation: the one with the target frame
+    let displayId: CGDirectDisplayID
     let from: Rect
     let to: Rect
     let startTime: CFTimeInterval

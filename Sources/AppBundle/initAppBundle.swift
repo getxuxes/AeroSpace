@@ -8,8 +8,6 @@ import Foundation
         unsafe _isCli = false
         initServerArgs()
         await waitForAccessibilityPermission_nonCancellable()
-        // Crash-safe net: restore AXEnhancedUserInterface on any app a previous run left it off for (see EnhancedUiHold)
-        EnhancedUiRestoreStore.shared.restoreAllOnStartup()
         if isDebug {
             await toggleReleaseServerIfDebug(.off)
             interceptTermination(SIGINT)

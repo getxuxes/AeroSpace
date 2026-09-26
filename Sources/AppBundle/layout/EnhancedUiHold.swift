@@ -7,9 +7,6 @@ import Foundation
 ///
 /// - Reference-counted per app (the attribute is app-wide): the first window of an app that starts animating disables
 ///   it, the last one to finish restores it. Only apps where it was originally on are touched.
-/// - Crash-safe: every app we turn it off for is written to disk (`EnhancedUiRestoreStore`). If AeroSpace dies mid
-///   animation without restoring, `restoreAllOnStartup()` puts every recorded app back on the next launch, so no app is
-///   ever left with enhanced accessibility disabled.
 @MainActor
 final class EnhancedUiHold {
     static let shared = EnhancedUiHold()
@@ -37,14 +34,10 @@ final class EnhancedUiHold {
             guard var state = self.byPid[pid] else {
                 // The animation ended before the disable landed. Make sure we don't leave the app off
                 if wasEnabled { app.restoreEnhancedUiAfterAnimation() }
-                EnhancedUiRestoreStore.shared.remove(pid)
                 return
             }
             state.pending = false
-            if wasEnabled {
-                state.disabled = true
-                EnhancedUiRestoreStore.shared.add(pid: pid, bundleId: app.rawAppBundleId)
-            }
+            if wasEnabled { state.disabled = true }
             self.byPid[pid] = state
             if state.windowIds.isEmpty { self.finish(pid) } // everything finished while we were disabling
         }
@@ -60,62 +53,6 @@ final class EnhancedUiHold {
 
     private func finish(_ pid: pid_t) {
         guard let state = byPid.removeValue(forKey: pid) else { return }
-        if state.disabled {
-            state.app.restoreEnhancedUiAfterAnimation()
-            EnhancedUiRestoreStore.shared.remove(pid)
-        }
-    }
-}
-
-/// The on-disk list of apps whose `AXEnhancedUserInterface` AeroSpace turned off and hasn't restored yet. Used only to
-/// recover from a crash: on a clean animation end the entry is removed before the restore is even needed.
-@MainActor
-final class EnhancedUiRestoreStore {
-    static let shared = EnhancedUiRestoreStore()
-
-    private struct Record: Codable, Equatable {
-        let pid: pid_t
-        let bundleId: String?
-    }
-    private let url = URL(filePath: "/tmp/bobko.aerospace/enhanced-ui-restore.json")
-    private var records: [Record] = []
-
-    private init() {
-        records = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([Record].self, from: $0) } ?? []
-    }
-
-    func add(pid: pid_t, bundleId: String?) {
-        let record = Record(pid: pid, bundleId: bundleId)
-        if !records.contains(record) {
-            records.append(record)
-            flush()
-        }
-    }
-
-    func remove(_ pid: pid_t) {
-        let before = records.count
-        records.removeAll { $0.pid == pid }
-        if records.count != before { flush() }
-    }
-
-    private func flush() {
-        _ = Result {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(records).write(to: url, options: .atomic)
-        }.getIgnoringErrorsOrNil()
-    }
-
-    /// Called once at startup, before any animation can run. Restores `AXEnhancedUserInterface` on every recorded app
-    /// that is still running, then clears the list. A crash-safe net for a server that died mid animation.
-    func restoreAllOnStartup() {
-        defer { records = []; try? FileManager.default.removeItem(at: url) }
-        let running = NSWorkspace.shared.runningApplications
-        for record in records {
-            let app = running.first { $0.processIdentifier == record.pid }
-                ?? record.bundleId.flatMap { id in running.first { $0.bundleIdentifier == id } }
-            guard let app, !app.isTerminated else { continue }
-            let axApp = AXUIElementCreateApplication(app.processIdentifier)
-            AXUIElementSetAttributeValue(axApp, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
-        }
+        if state.disabled { state.app.restoreEnhancedUiAfterAnimation() }
     }
 }
