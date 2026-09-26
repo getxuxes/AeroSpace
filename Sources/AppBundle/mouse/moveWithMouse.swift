@@ -10,6 +10,8 @@ func movedObs(_: AXObserver, ax: AXUIElement, notif: CFString, _: UnsafeMutableR
     Task.startUnstructured { @MainActor in
         guard let token: RunSessionGuard = .isServerEnabled else { return }
         guard let windowId, let window = Window.get(byId: windowId), try await isManipulatedWithMouse(window) else {
+            // The echo of an animation frame. A refresh would query the app on the AX thread that writes the frames
+            if let windowId, WindowAnimator.shared.targetFrame(windowId) != nil { return }
             scheduleCancellableCompleteRefreshSession(.ax(notif))
             return
         }
