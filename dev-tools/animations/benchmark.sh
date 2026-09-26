@@ -49,16 +49,23 @@ done
 find_windows Ghostty G1 G2
 find_windows Zen Z1 Z2
 find_windows Discord D
+# Discord keeps running without a window when it's closed: reopen it, but only the apps suite needs it
+if [ -z "${role[D]:-}" ] && has_suite apps; then
+    open -a Discord
+    for _ in $(seq 1 40); do sleep 0.5; find_windows Discord D; [ -n "${role[D]:-}" ] && break; done
+fi
 find_windows Finder F
 # Without a Finder window, a third Ghostty window is the static one on the other monitor
 [ -n "${role[F]:-}" ] || find_windows Ghostty G1 G2 F
 missing=""
-for r in G1 G2 Z1 Z2 T1 T2 D F; do [ -n "${role[$r]:-}" ] || missing="$missing $r"; done
+needed="G1 G2 Z1 Z2 T1 T2 F"
+has_suite apps && needed="$needed D"
+for r in $needed; do [ -n "${role[$r]:-}" ] || missing="$missing $r"; done
 if [ -n "$missing" ]; then
     echo "Missing windows:$missing  (need 2 Ghostty, 2 Zen, 1 Discord, and 1 Finder or a 3rd Ghostty window; TextEdit is created)"
     exit 1
 fi
-for r in G1 G2 Z1 Z2 T1 T2 D F; do echo "$r=${role[$r]}"; done > "$out/roles.txt"
+for r in G1 G2 Z1 Z2 T1 T2 D F; do echo "$r=${role[$r]:-}"; done > "$out/roles.txt"
 "$cli" list-windows --all --format '%{window-id} | %{app-name} | %{workspace} | %{monitor-name}' > "$out/windows.txt"
 
 # ---------------------------------------------------------------- monitors
@@ -85,11 +92,11 @@ c focus-monitor "$M1"; c workspace B1
 NEW="" # a window created by the scenario (lifecycle)
 tracked_csv() { # name=id of every role, and NEW
     local items=()
-    for r in G1 G2 Z1 Z2 T1 T2 D F; do items+=("$r=${role[$r]}"); done
+    for r in G1 G2 Z1 Z2 T1 T2 D F; do [ -n "${role[$r]:-}" ] && items+=("$r=${role[$r]}"); done
     [ -n "$NEW" ] && items+=("NEW=$NEW")
     (IFS=,; echo "${items[*]}")
 }
-managed_csv() { local r ids=(); for r in G1 G2 Z1 Z2 T1 T2 D F; do ids+=("${role[$r]}"); done; (IFS=,; echo "${ids[*]}"); }
+managed_csv() { local r ids=(); for r in G1 G2 Z1 Z2 T1 T2 D F; do [ -n "${role[$r]:-}" ] && ids+=("${role[$r]}"); done; (IFS=,; echo "${ids[*]}"); }
 # Waits until no window moved for 3 samples in a row (50ms apart), at most ~4s
 wait_settled() {
     local previous="" same=0 current csv
@@ -188,8 +195,11 @@ h() { "$bin/geom" "$1" | awk '{print $5 + 0}'; }
 # ---------------------------------------------------------------- prime
 # lastFloatingSize comes from the size a window had when the server registered it, i.e. from whatever ran before.
 # Give every window the same floating size so floating scenarios start equal on both servers
-layout_roles G1 Z1 T1 G2 Z2 T2 D
-for r in G1 Z1 T1 G2 Z2 T2 D; do
+prime_roles="G1 Z1 T1 G2 Z2 T2"
+[ -n "${role[D]:-}" ] && prime_roles="$prime_roles D"
+# shellcheck disable=SC2086
+layout_roles $prime_roles
+for r in $prime_roles; do
     c layout floating --window-id "${role[$r]}"
     c center-floating --window-id "${role[$r]}" --width 50% --height 50%
     wait_settled
