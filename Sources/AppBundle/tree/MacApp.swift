@@ -409,16 +409,22 @@ final class MacApp: AbstractApp {
     private func withWindow<T>(
         _ windowId: UInt32,
         _ cm: CancellationMode,
+        site: StaticString = #function,
         _ body: @Sendable @escaping (AXUIElement, RunLoopJob) throws -> T?,
     ) async throws -> T? {
-        try await thread?.runInLoop(cm) { [windows] job in
+        try await thread?.runInLoop(cm, site: site) { [windows] job in
             guard let window = windows.threadGuarded[windowId] else { return nil }
             return try body(window.ax, job)
         }
     }
 
-    private func withWindowAsync(_ windowId: UInt32, _ cm: CancellationMode, _ body: @Sendable @escaping (AXUIElement, RunLoopJob) throws -> ()) -> RunLoopJob {
-        thread?.runInLoopAsync(job: RunLoopJob(cm)) { [windows] job in
+    private func withWindowAsync(
+        _ windowId: UInt32,
+        _ cm: CancellationMode,
+        site: StaticString = #function,
+        _ body: @Sendable @escaping (AXUIElement, RunLoopJob) throws -> (),
+    ) -> RunLoopJob {
+        thread?.runInLoopAsync(job: RunLoopJob(cm), site: site) { [windows] job in
             guard let window = windows.threadGuarded[windowId] else { return }
             try? body(window.ax, job)
         } ?? .cancelled

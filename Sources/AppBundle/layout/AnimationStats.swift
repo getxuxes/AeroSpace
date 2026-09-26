@@ -7,6 +7,8 @@ import QuartzCore
 ///
 /// - `link+ <time> <displayId> <fps>` / `link- <time> <displayId>`: a screen's display link started/stopped
 /// - `tick <time> <displayId> <vsyncTimestamp>`: a display link tick on the main thread
+/// - `job <queuedAt> <start> <end> <thread> <site>`: any job on an app's AX thread (what else keeps it busy), `site` is
+///   the function that queued it
 /// - `ax <queuedAt> <start> <end> <windowId> <p|ps|so>`: an animated AX write on the app's AX thread. `p`: position only,
 ///   `ps`: position and size, `so`: the stick-out setup (push, size, move)
 final class AnimationStats: Sendable {
@@ -26,6 +28,11 @@ final class AnimationStats: Sendable {
     func log(_ line: String) {
         let data = Data((line + "\n").utf8)
         lock.withLock { file.write(data) }
+    }
+
+    func logJob(queuedAt: CFTimeInterval, start: CFTimeInterval, site: StaticString) {
+        let thread = (Thread.current.name ?? "?").replacingOccurrences(of: " ", with: "_")
+        log("job \(queuedAt) \(start) \(CACurrentMediaTime()) \(thread) \(site)".replacingOccurrences(of: "\n", with: ""))
     }
 
     /// Runs one animated AX write. When measuring, logs how long it waited on the app's AX thread and how long it took
