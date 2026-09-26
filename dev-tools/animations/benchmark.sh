@@ -7,7 +7,8 @@
 # Usage: benchmark.sh <aerospace-cli> <out-dir> <suites> [repetitions] [stats-log]
 #   suites: comma-separated, any of: core layouts apps lifecycle mouse mon
 #
-# Windows it needs (it finds them by app, and creates the TextEdit documents itself):
+# Windows it needs (it finds them by app, and creates the TextEdit documents itself; within an app, roles go by window id,
+# so every server gets the same windows in the same roles):
 #   G1 G2 Ghostty, Z1 Z2 Zen, T1 T2 TextEdit, D Discord, F Finder
 # It works on workspaces B1 (the focused monitor), B2 (the other monitor, only F), B3 and B9 (hidden). Windows of other
 # workspaces stay where they are. It moves windows and sends key and mouse events: DON'T touch the mouse or keyboard.
@@ -29,7 +30,7 @@ has_suite() { [[ "$suites" == *",$1,"* ]]; }
 declare -A role
 find_windows() { # app-name, roles...
     local app="$1"; shift
-    mapfile -t found < <("$cli" list-windows --all --format '%{window-id}|%{app-name}' | awk -F'|' -v app="$app" 'tolower($2) ~ "^"tolower(app) {print $1}' | tr -d ' ')
+    mapfile -t found < <("$cli" list-windows --all --format '%{window-id}|%{app-name}' | awk -F'|' -v app="$app" 'tolower($2) ~ "^"tolower(app) {print $1}' | tr -d ' ' | sort -n)
     local i=0
     for r in "$@"; do
         [ -n "${found[$i]:-}" ] && role[$r]="${found[$i]}"
@@ -85,6 +86,7 @@ tracked_csv() { # name=id of every role, and NEW
     [ -n "$NEW" ] && items+=("NEW=$NEW")
     (IFS=,; echo "${items[*]}")
 }
+managed_csv() { local r ids=(); for r in G1 G2 Z1 Z2 T1 T2 D F; do ids+=("${role[$r]}"); done; (IFS=,; echo "${ids[*]}"); }
 # Waits until no window moved for 3 samples in a row (50ms apart), at most ~4s
 wait_settled() {
     local previous="" same=0 current csv
@@ -161,7 +163,7 @@ run() {
         "$setup"
         wait_settled
         local before; before=$(log_size)
-        "$bin/trace" all "$secs" > "$out/$name-$rep.trace" 2>/dev/null &
+        "$bin/trace" all "$secs" h "$(managed_csv)" > "$out/$name-$rep.trace" 2>/dev/null &
         local tracepid=$!
         sleep 0.1
         "$action"

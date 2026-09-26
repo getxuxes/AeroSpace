@@ -2,7 +2,9 @@
 // every vsync, and prints every frame where something changed, with the uncovered ranges ("GAPS") along one axis.
 // It doesn't write anything, so it can watch real AeroSpace animations. See README.md next to this file.
 //
-// Usage: trace <windowId,windowId,...|all> <seconds> [h|v]
+// Usage: trace <windowId,windowId,...|all> <seconds> [h|v] [managedId,managedId,...]
+//   managed:     with all, the windows the monitor metrics (mon_flips, wrong_mon) look at. Apps also have windows that
+//                the window manager doesn't manage (panels, popovers) and that follow their parent anywhere
 //   all:         every on-screen window of the normal level, including windows that appear while tracing
 //   h (default): x ranges across the monitors of the top row that contain a traced window. Only windows that are
 //                nearly as tall as their monitor (tiles in a horizontal layout) count as covering. Trace all the tiles
@@ -26,6 +28,7 @@ let traceAll = args[1] == "all"
 var ids = args[1].split(separator: ",").compactMap { CGWindowID($0) }
 let seconds = Double(args[2]) ?? 1
 let vertical = args.count > 3 && args[3] == "v"
+let managed: Set<CGWindowID>? = args.count > 4 ? Set(args[4].split(separator: ",").compactMap { CGWindowID($0) }) : nil
 _ = NSApplication.shared
 
 // Screens in the top-left coordinates of CGWindowList
@@ -220,6 +223,7 @@ func printStats() {
             previousChange = index
         }
         // Monitors
+        if let managed, !managed.contains(id) { continue }
         let monitors = frames.map { $0[id].flatMap(majorityMonitor) }
         let startMon = first[id].flatMap(majorityMonitor)
         let endMon = last[id].flatMap(majorityMonitor)
