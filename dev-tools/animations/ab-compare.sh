@@ -8,7 +8,7 @@
 # builds with [animations] enabled = false (a generated copy of your config), which must behave identically.
 #
 # Preconditions (checked, it aborts with instructions otherwise):
-#   - No other AeroSpace server runs (the installed app is quit). Two servers fight over the windows.
+#   - No debug AeroSpace server runs. The installed app is quit automatically and reopened at the end.
 #   - The windows benchmark.sh needs are open (2 Ghostty, 2 Zen, 2 TextEdit documents, 1 Discord, 1 Finder).
 #   - The debug builds have the Accessibility permission, and the terminal too (key and mouse events).
 #   - Animations are on in your config.
@@ -26,9 +26,9 @@ mkdir -p "$run"
 exec > >(tee "$run/ab-compare.log") 2>&1
 cd "$repo"
 
-if pgrep -f 'AeroSpace.app/Contents/MacOS/AeroSpace|\.debug/AeroSpaceApp' >/dev/null; then
-    echo "Another AeroSpace server is running. Quit it first:  osascript -e 'quit app \"AeroSpace\"'  (and stop debug servers)"
-    pgrep -fl 'AeroSpace.app/Contents/MacOS/AeroSpace|\.debug/AeroSpaceApp'
+if pgrep -f '\.debug/AeroSpaceApp' >/dev/null; then
+    echo "A debug AeroSpace server is running. Stop it first:"
+    pgrep -fl '\.debug/AeroSpaceApp'
     exit 1
 fi
 
@@ -61,7 +61,24 @@ stop_server() {
     for _ in $(seq 1 40); do kill -0 "$srvpid" 2>/dev/null || break; sleep 0.1; done
     srvpid=""
 }
-trap stop_server EXIT
+# The installed app is quit for the benchmark (two servers fight over the windows) and reopened at the end, even if the
+# run fails: it puts back the windows that the benchmark left hidden in a corner
+reopen_installed=0
+finish() {
+    stop_server
+    if [ "$reopen_installed" -eq 1 ]; then
+        echo "Reopening the installed AeroSpace"
+        open -a AeroSpace
+    fi
+}
+trap finish EXIT
+if pgrep -f 'AeroSpace.app/Contents/MacOS/AeroSpace' >/dev/null; then
+    echo "Quitting the installed AeroSpace (reopened at the end)"
+    reopen_installed=1
+    osascript -e 'quit app "AeroSpace"'
+    for _ in $(seq 1 50); do pgrep -f 'AeroSpace.app/Contents/MacOS/AeroSpace' >/dev/null || break; sleep 0.1; done
+    if pgrep -f 'AeroSpace.app/Contents/MacOS/AeroSpace' >/dev/null; then echo "The installed AeroSpace didn't quit"; exit 1; fi
+fi
 
 off_config="$run/aerospace-animations-off.toml"
 awk '/^\[/{section=$0} section=="[animations]" && /^[[:space:]]*enabled[[:space:]]*=/ {sub(/true/, "false")} {print}' "$config" > "$off_config"
@@ -105,4 +122,4 @@ if [ -d "$run/branch-off" ]; then
     "$tools/.bin/report" "$run/branch-off" "$run/main-off" rama-off main-off >> "$run/report.md"
 fi
 cat "$run/report.md"
-echo "DONE: $run/report.md. You can use the mouse/keyboard again. Restart your normal AeroSpace when ready."
+echo "DONE: $run/report.md. You can use the mouse/keyboard again."
