@@ -32,11 +32,13 @@ func runHeavyCompleteRefreshSession(
     if !TrayMenuModel.shared.isEnabled { return }
     let res = await Result {
         try await $refreshSessionEvent.withValue(event) {
+            // Before any AX read, which can queue behind a busy app AX thread (e.g. still draining the tail of a
+            // mouse drag) and stall the snap-back by up to a second
+            if shouldLayoutWorkspaces && optimisticallyPreLayoutWorkspaces { try await layoutWorkspaces() }
+
             let nativeFocused = try await getNativeFocusedWindow(.cancellable)
             if let nativeFocused { try await debugWindowsIfRecording(nativeFocused, .cancellable) }
             updateFocusCache(nativeFocused)
-
-            if shouldLayoutWorkspaces && optimisticallyPreLayoutWorkspaces { try await layoutWorkspaces() }
 
             await refreshModel_nonCancellable()
             try await refresh()
