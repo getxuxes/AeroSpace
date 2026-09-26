@@ -143,7 +143,8 @@ lock.unlock()
 //
 // STATS line:
 //   anim_ms       from the first to the last change of any window
-//   ft_p50/p95/max  frame time: interval between consecutive changes of a moving window, pooled over the windows (ms)
+//   ft_p50/p95/max  frame time: interval between consecutive changes of a moving window, pooled over the windows (ms).
+//                 An interval over 250ms is a pause between two animations, not a frame
 //   dropped       vsyncs without a change while a window was still visibly moving: an interval of k vsyncs followed by a
 //                 step of >= 2pt counts k-1. The sub-point tail of the easing doesn't count
 //   gap_max       largest uncovered square (pt) on a watched monitor in any frame, minus the same in the settled first
@@ -236,6 +237,8 @@ func printStats() {
             if majorityMonitor(now) != nil && majorityMonitor(before) != nil { maxStep = max(maxStep, step) }
             firstChange = min(firstChange ?? index, index)
             lastChange = max(lastChange ?? index, index)
+            // More than 250ms without a change: the window stopped and a new animation starts (a session with pauses)
+            if let previous = previousChange, times[index] - times[previous] > 0.25 { previousChange = nil }
             if let previousChange {
                 let dt = times[index] - times[previousChange]
                 frameTimes.append(dt * 1000)

@@ -125,5 +125,20 @@ for sample in samples where sample.rects != previous {
     unexpected = max(unexpected, g.unexpected)
     if g.unexpected >= 2 { unexpectedFrames += 1 }
 }
-print(String(format: "LAG gap_total=%.0f gap_planned=%.0f gap_unexpected=%.0f unexpected_frames=%d has_frames=%d",
-             max(0, total), max(0, planned), unexpected, unexpectedFrames, sent.isEmpty ? 0 : 1))
+// Velocity jumps of the curve itself: how much the step of a window (points per 144Hz frame) changes between two
+// consecutive animator ticks. An animation that interrupts another and starts at another speed shows up here
+var velocityJumps: [Double] = []
+for frames in sent.values {
+    var previousStep: [Double]? = nil
+    for (a, b) in zip(frames, frames.dropFirst()) {
+        guard let ra = a.rect, let rb = b.rect, b.time - a.time > 0, b.time - a.time < 0.03 else { previousStep = nil; continue }
+        let perFrame = (1.0 / 144) / (b.time - a.time)
+        let step = [rb.minX - ra.minX, rb.minY - ra.minY, rb.width - ra.width, rb.height - ra.height].map { Double($0) * perFrame }
+        if let previousStep { velocityJumps.append(zip(step, previousStep).map { abs($0 - $1) }.max() ?? 0) }
+        previousStep = step
+    }
+}
+velocityJumps.sort()
+let jumpP95 = velocityJumps.isEmpty ? 0 : velocityJumps[min(velocityJumps.count - 1, Int(Double(velocityJumps.count - 1) * 0.95))]
+print(String(format: "LAG gap_total=%.0f gap_planned=%.0f gap_unexpected=%.0f unexpected_frames=%d vjump_p95=%.1f has_frames=%d",
+             max(0, total), max(0, planned), unexpected, unexpectedFrames, jumpP95, sent.isEmpty ? 0 : 1))
