@@ -2,7 +2,8 @@
 // every vsync, and prints every frame where something changed, with the uncovered ranges ("GAPS") along one axis.
 // It doesn't write anything, so it can watch real AeroSpace animations. See README.md next to this file.
 //
-// Usage: trace <windowId,windowId,...> <seconds> [h|v]
+// Usage: trace <windowId,windowId,...|all> <seconds> [h|v]
+//   all:         every on-screen window of the normal level, including windows that appear while tracing
 //   h (default): x ranges across the monitors of the top row that contain a traced window. Only windows that are
 //                nearly as tall as their monitor (tiles in a horizontal layout) count as covering. Trace all the tiles
 //                of those monitors, otherwise the space of the untraced ones shows up as a gap.
@@ -21,7 +22,8 @@ guard args.count >= 3 else {
     print("Usage: trace <windowId,windowId,...> <seconds> [h|v]")
     exit(1)
 }
-let ids = args[1].split(separator: ",").compactMap { CGWindowID($0) }
+let traceAll = args[1] == "all"
+var ids = args[1].split(separator: ",").compactMap { CGWindowID($0) }
 let seconds = Double(args[2]) ?? 1
 let vertical = args.count > 3 && args[3] == "v"
 _ = NSApplication.shared
@@ -42,6 +44,20 @@ func bounds(_ ids: [CGWindowID]) -> [CGWindowID: CGRect] {
     }
     return result
 }
+
+func allOnScreen() -> [CGWindowID: CGRect] {
+    guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [:] }
+    var result: [CGWindowID: CGRect] = [:]
+    for info in list where (info[kCGWindowLayer as String] as? Int) == 0 {
+        guard let id = info[kCGWindowNumber as String] as? CGWindowID,
+              let dict = info[kCGWindowBounds as String] as? NSDictionary,
+              let rect = CGRect(dictionaryRepresentation: dict) else { continue }
+        result[id] = rect
+    }
+    return result
+}
+func sample() -> [CGWindowID: CGRect] { traceAll ? allOnScreen() : bounds(ids) }
+if traceAll { ids = allOnScreen().keys.sorted() }
 
 // The monitors to watch and the range of the axis they cover
 typealias Screen = (frame: CGRect, visible: CGRect, screen: NSScreen)
@@ -70,10 +86,10 @@ let fastest = screens.max { $0.screen.maximumFramesPerSecond < $1.screen.maximum
 let displayId = fastest.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID
 CVDisplayLinkCreateWithCGDisplay(displayId, &link)
 CVDisplayLinkSetOutputHandler(link!) { _, _, _, _, _ in
-    let sample = bounds(ids)
+    let bounds = sample()
     let time = CACurrentMediaTime()
     lock.lock()
-    frames.append(sample)
+    frames.append(bounds)
     times.append(time)
     lock.unlock()
     return kCVReturnSuccess
@@ -83,6 +99,7 @@ Thread.sleep(forTimeInterval: seconds)
 CVDisplayLinkStop(link!)
 
 lock.lock()
+if traceAll { ids = Array(Set(frames.flatMap(\.keys))).sorted() } // including the windows that appeared
 print(String(format: "axis=%@ range=%.0f..%.0f fps=%d frames=%d", vertical ? "v" : "h", lo, hi, fastest.maximumFramesPerSecond, frames.count))
 var previous: [CGWindowID: CGRect]? = nil
 var unchanged = 0
@@ -123,6 +140,8 @@ lock.unlock()
 //   gap_frames    frames with gap >= 2pt
 //   mon_flips     most times one window's majority monitor changed (1 for a move between monitors, more is a bounce)
 //   wrong_mon     frames where a window was mostly on a monitor that is neither where it started nor where it ended
+//   max_step      largest move of any edge between two consecutive frames (pt), for windows on a monitor in both. A
+//                 window that jumps instead of sliding shows the whole distance here
 //   trace_missed  vsyncs the tracer itself missed (the measurement is less precise if > 0)
 // FT line: every frame time (ms), for pooling across repetitions
 func printStats() {
@@ -180,18 +199,21 @@ func printStats() {
     var dropped = 0
     var firstChange: Int? = nil
     var lastChange: Int? = nil
+    var maxStep: CGFloat = 0
     var monFlips = 0
     var wrongMon = 0
     for id in ids {
         var previousChange: Int? = nil
         for index in 1 ..< frames.count {
             guard let now = frames[index][id], let before = frames[index - 1][id], now != before else { continue }
+            let step = max(abs(now.minX - before.minX), abs(now.maxX - before.maxX), abs(now.minY - before.minY), abs(now.maxY - before.maxY))
+            // A window that appears or hides (workspace switch) jumps by design; count the steps of windows on screen
+            if majorityMonitor(now) != nil && majorityMonitor(before) != nil { maxStep = max(maxStep, step) }
             firstChange = min(firstChange ?? index, index)
             lastChange = max(lastChange ?? index, index)
             if let previousChange {
                 let dt = times[index] - times[previousChange]
                 frameTimes.append(dt * 1000)
-                let step = max(abs(now.minX - before.minX), abs(now.maxX - before.maxX), abs(now.minY - before.minY), abs(now.maxY - before.maxY))
                 let vsyncs = Int((dt / period).rounded())
                 if vsyncs > 1 && step >= 2 { dropped += vsyncs - 1 }
             }
@@ -239,8 +261,8 @@ func printStats() {
     }
     let animMs = firstChange.flatMap { a in lastChange.map { b in (times[b] - times[a]) * 1000 } } ?? 0
     print(String(
-        format: "STATS anim_ms=%.1f changes=%d ft_p50=%.2f ft_p95=%.2f ft_max=%.2f dropped=%d gap_max=%.0f gap_frames=%d mon_flips=%d wrong_mon=%d trace_missed=%d",
-        animMs, frameTimes.count, percentile(0.5), percentile(0.95), frameTimes.last ?? 0, dropped, gapMax, gapFrames, monFlips, wrongMon, traceMissed,
+        format: "STATS anim_ms=%.1f changes=%d ft_p50=%.2f ft_p95=%.2f ft_max=%.2f dropped=%d gap_max=%.0f gap_frames=%d mon_flips=%d wrong_mon=%d max_step=%.0f trace_missed=%d",
+        animMs, frameTimes.count, percentile(0.5), percentile(0.95), frameTimes.last ?? 0, dropped, gapMax, gapFrames, monFlips, wrongMon, maxStep, traceMissed,
     ))
     print("FT " + frameTimes.map { String(format: "%.2f", $0) }.joined(separator: ","))
 }

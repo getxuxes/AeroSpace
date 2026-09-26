@@ -123,8 +123,8 @@ func pair(_ a: String, _ b: String) -> String { "\(a) / \(b)" }
 print("## Por escenario: \(labelA) / \(labelB)\n")
 print("Repeticiones agrupadas. Tiempo de frame = intervalo entre cambios visibles de una ventana en movimiento (WindowServer).")
 print("Frames perdidos = media por repetición. Hueco = lado del mayor cuadrado sin cubrir, peor repetición (mediana entre paréntesis).\n")
-print("| Escenario | Reps | Frame p50 ms | Frame p95 ms | Frame máx ms | Frames perdidos | Hueco máx pt | Frames con hueco | Cambio de monitor (flips/frames mal) | Duración ms | Estado final |")
-print("|---|---|---|---|---|---|---|---|---|---|---|")
+print("| Escenario | Reps | Frame p50 ms | Frame p95 ms | Frame máx ms | Frames perdidos | Hueco máx pt | Frames con hueco | Paso máx pt | Cambio de monitor (flips/frames mal) | Duración ms | Estado final |")
+print("|---|---|---|---|---|---|---|---|---|---|---|---|")
 for name in scenarios {
     let a = tracesA[name], b = tracesB[name]
     let ftA = (a ?? []).flatMap(\.frameTimes), ftB = (b ?? []).flatMap(\.frameTimes)
@@ -151,7 +151,7 @@ for name in scenarios {
     }
     let final = baseline.isEmpty ? "—" : worst.map { $0 <= 1 ? "idéntico" : String(format: "DIFIERE %.0fpt", $0) } ?? "DIFIERE (ventanas)"
     let reps = pair("\(a?.count ?? 0)", "\(b?.count ?? 0)")
-    print("| \(name) | \(reps) | \(pair(fmt(percentile(ftA, 0.5), 2), fmt(percentile(ftB, 0.5), 2))) | \(pair(fmt(percentile(ftA, 0.95), 2), fmt(percentile(ftB, 0.95), 2))) | \(pair(fmt(ftA.max(), 1), fmt(ftB.max(), 1))) | \(pair(dropped(a), dropped(b))) | \(pair(gap(a), gap(b))) | \(pair(gapFrames(a), gapFrames(b))) | \(pair(monitors(a), monitors(b))) | \(pair(fmt(median(stat(a, "anim_ms")), 0), fmt(median(stat(b, "anim_ms")), 0))) | \(final) |")
+    print("| \(name) | \(reps) | \(pair(fmt(percentile(ftA, 0.5), 2), fmt(percentile(ftB, 0.5), 2))) | \(pair(fmt(percentile(ftA, 0.95), 2), fmt(percentile(ftB, 0.95), 2))) | \(pair(fmt(ftA.max(), 1), fmt(ftB.max(), 1))) | \(pair(dropped(a), dropped(b))) | \(pair(gap(a), gap(b))) | \(pair(gapFrames(a), gapFrames(b))) | \(pair(fmt(stat(a, "max_step").max(), 0), fmt(stat(b, "max_step").max(), 0))) | \(pair(monitors(a), monitors(b))) | \(pair(fmt(median(stat(a, "anim_ms")), 0), fmt(median(stat(b, "anim_ms")), 0))) | \(final) |")
 }
 
 for (label, dir) in [(labelA, dirA), (labelB, dirB)] {

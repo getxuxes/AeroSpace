@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 # One-shot A/B: builds this branch and a main worktree (both debug), runs benchmark.sh against each (one server at a
 # time) and writes the tables (report.swift). Everything, including this script's own output, goes to
-# dev-tools/animations/out/<date>-ab/ (report.md is the result). It MOVES YOUR WINDOWS on the focused workspace:
-# DON'T touch the mouse or keyboard until it prints DONE (~6 min with 3 repetitions).
+# dev-tools/animations/out/<date>-ab/ (report.md is the result). It MOVES YOUR WINDOWS and sends key and mouse events:
+# DON'T touch the mouse or keyboard until it prints DONE.
+#
+# Suites (comma-separated): core layouts apps lifecycle mouse mon (see benchmark.sh), and "off": core again on both
+# builds with [animations] enabled = false (a generated copy of your config), which must behave identically.
 #
 # Preconditions (checked, it aborts with instructions otherwise):
 #   - No other AeroSpace server runs (the installed app is quit). Two servers fight over the windows.
-#   - Exactly 3 windows on the focused workspace.
-#   - The debug builds have the Accessibility permission, and the terminal too (the key-binding scenarios send keys).
-#   - Animations are on in the config, e.g.  [animations]  enabled = true  duration-ms = 120
+#   - The windows benchmark.sh needs are open (2 Ghostty, 2 Zen, 2 TextEdit documents, 1 Discord, 1 Finder).
+#   - The debug builds have the Accessibility permission, and the terminal too (key and mouse events).
+#   - Animations are on in your config.
 #
-# Usage: ab-compare.sh [repetitions]
+# Usage: ab-compare.sh [suites] [repetitions]      (default: all suites, 3 repetitions)
 set -uo pipefail
-reps="${1:-3}"
+suites="${1:-core,layouts,apps,lifecycle,mouse,mon,off}"
+reps="${2:-3}"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 tools="$repo/dev-tools/animations"
 wt="$repo/../aerospace-main-wt"
@@ -59,10 +63,14 @@ stop_server() {
 }
 trap stop_server EXIT
 
-run_side() { # label, repoDir
-    local label="$1" root="$2"
-    echo "== $label: starting debug server =="
-    AEROSPACE_ANIMATION_STATS="$run/$label.server.log" "$root/.debug/AeroSpaceApp" >"$run/$label.server.stdout" 2>&1 &
+off_config="$run/aerospace-animations-off.toml"
+awk '/^\[/{section=$0} section=="[animations]" && /^[[:space:]]*enabled[[:space:]]*=/ {sub(/true/, "false")} {print}' "$config" > "$off_config"
+grep -A2 '^\[animations\]' "$off_config" | grep -q 'enabled = false' || { echo "Couldn't turn animations off in $off_config"; exit 1; }
+
+run_side() { # label, repoDir, suites, configPath
+    local label="$1" root="$2" side_suites="$3" cfg="$4"
+    echo "== $label ($side_suites): starting debug server =="
+    AEROSPACE_ANIMATION_STATS="$run/$label.server.log" "$root/.debug/AeroSpaceApp" --config-path "$cfg" >"$run/$label.server.stdout" 2>&1 &
     srvpid=$!
     for _ in $(seq 1 60); do
         [ -S "$sock" ] && "$repo/.debug/aerospace" list-windows --workspace focused >/dev/null 2>&1 && break
@@ -73,16 +81,28 @@ run_side() { # label, repoDir
     fi
     sleep 1 # let the server finish its first layout
     # The server creates the log at its first animation. main has no AnimationStats and never creates it
-    "$tools/benchmark.sh" "$repo/.debug/aerospace" "$run/$label" "$reps" "$run/$label.server.log"
+    "$tools/benchmark.sh" "$repo/.debug/aerospace" "$run/$label" "$side_suites" "$reps" "$run/$label.server.log" || { stop_server; return 1; }
     stop_server
     sleep 1
 }
 
+on_suites=$(echo ",$suites," | sed 's/,off,/,/g; s/^,//; s/,$//')
 echo "!!! DON'T TOUCH THE MOUSE OR KEYBOARD until DONE !!!"
-run_side branch "$repo" || exit 1
-run_side main "$wt" || exit 1
+if [ -n "$on_suites" ]; then
+    run_side branch "$repo" "$on_suites" "$config" || exit 1
+    run_side main "$wt" "$on_suites" "$config" || exit 1
+fi
+if [[ ",$suites," == *",off,"* ]]; then
+    run_side branch-off "$repo" core "$off_config" || exit 1
+    run_side main-off "$wt" core "$off_config" || exit 1
+fi
 
 echo "== Report =="
-"$tools/.bin/report" "$run/branch" "$run/main" rama main > "$run/report.md"
+: > "$run/report.md"
+[ -d "$run/branch" ] && "$tools/.bin/report" "$run/branch" "$run/main" rama main >> "$run/report.md"
+if [ -d "$run/branch-off" ]; then
+    printf '\n# Animaciones desactivadas\n\n' >> "$run/report.md"
+    "$tools/.bin/report" "$run/branch-off" "$run/main-off" rama-off main-off >> "$run/report.md"
+fi
 cat "$run/report.md"
 echo "DONE: $run/report.md. You can use the mouse/keyboard again. Restart your normal AeroSpace when ready."
