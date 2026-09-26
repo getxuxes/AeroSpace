@@ -169,14 +169,19 @@ final class MacApp: AbstractApp {
     /// between disableEnhancedUiForAnimation and restoreEnhancedUiAfterAnimation).
     /// In-between frames are one resize and one move. The second resize of setFrame would redraw the window twice per
     /// frame, and at the monitor edge macOS trims the first one, so the window would flicker between two sizes. The last
-    /// frame uses setFrame, so the window ends up exactly where the layout wants it
-    func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, isLast: Bool) {
+    /// frame uses setFrame, so the window ends up exactly where the layout wants it.
+    /// macOS trims a resize that would make a window stick out of its monitor. A growing window is moved first and a
+    /// shrinking one resized first: in between, it's always inside its old or its new frame, so nothing gets trimmed
+    func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, grows: Bool, isLast: Bool) {
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        guard animationFrames.put(windowId, topLeft, size, isLast) else { return } // Already queued
+        guard animationFrames.put(windowId, topLeft, size, grows, isLast) else { return } // Already queued
         let job = withWindowAsync(windowId, .nonCancellable) { [animationFrames] window, job in
             guard let frame = animationFrames.take(windowId) else { return }
             if frame.isLast {
                 try setFrame(window, frame.topLeft, frame.size, job)
+            } else if frame.grows {
+                window.set(Ax.topLeftCornerAttr, frame.topLeft)
+                if let size = frame.size { window.set(Ax.sizeAttr, size) }
             } else {
                 if let size = frame.size { window.set(Ax.sizeAttr, size) }
                 window.set(Ax.topLeftCornerAttr, frame.topLeft)
@@ -453,15 +458,15 @@ extension [UInt32: AxWindow] {
 /// The latest animation frame of each window. Put on the main thread, taken on the app's AX thread
 private final class AnimationFrames: Sendable {
     private let lock = NSLock()
-    typealias Frame = (topLeft: CGPoint, size: CGSize?, isLast: Bool)
+    typealias Frame = (topLeft: CGPoint, size: CGSize?, grows: Bool, isLast: Bool)
     nonisolated(unsafe) private var frames: [UInt32: Frame] = [:]
 
     /// Returns false if a write of the window is already queued. That write will take this frame
-    func put(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, _ isLast: Bool) -> Bool {
+    func put(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, _ grows: Bool, _ isLast: Bool) -> Bool {
         lock.withLock {
             let queued = unsafe frames[windowId]
             // nil size means "unchanged since the last frame". Don't lose the size of a frame that wasn't written yet
-            unsafe frames[windowId] = (topLeft, size ?? queued?.size, isLast)
+            unsafe frames[windowId] = (topLeft, size ?? queued?.size, grows, isLast)
             return queued == nil
         }
     }
