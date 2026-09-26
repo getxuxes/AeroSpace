@@ -167,39 +167,17 @@ final class MacApp: AbstractApp {
     /// animation ends. Instead, the queued write takes the latest frame when it runs.
     /// AXEnhancedUserInterface is not toggled here: it is held off for the whole animation (see EnhancedUiHold, kept off
     /// between disableEnhancedUiForAnimation and restoreEnhancedUiAfterAnimation).
-    /// `positionFirst`: see shrinksAtMonitorEdge
-    func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, positionFirst: Bool) {
+    func setAxFrameAnimated(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?) {
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        guard animationFrames.put(windowId, topLeft, size, positionFirst) else { return } // Already queued
+        guard animationFrames.put(windowId, topLeft, size) else { return } // Already queued
         let queuedAt = CACurrentMediaTime()
         let job = withWindowAsync(windowId, .nonCancellable) { [animationFrames] window, job in
             guard let frame = animationFrames.take(windowId) else { return }
             try AnimationStats.timeAxWrite(queuedAt: queuedAt, windowId, frame.size == nil ? "p" : "ps") {
-                if frame.positionFirst {
-                    window.set(Ax.topLeftCornerAttr, frame.topLeft)
-                    if let size = frame.size { window.set(Ax.sizeAttr, size) }
-                } else {
-                    try setFrame(window, frame.topLeft, frame.size, job)
-                }
+                try setFrame(window, frame.topLeft, frame.size, job)
             }
         }
         if job.isCancelled { _ = animationFrames.take(windowId) } // The app is gone
-    }
-
-    /// macOS trims a resize that would push a window that fits on the screen out of it. It doesn't trim the resize of a
-    /// window that already sticks out. Push the window a few points past the edge first (to `pushedTo`), then resize and move it.
-    /// Non-cancellable: the next frame would cancel it halfway, and the window would never get its size.
-    /// AXEnhancedUserInterface is held off for the whole animation, see setAxFrameAnimated / EnhancedUiHold.
-    func setAxFrameStickingOut(_ windowId: UInt32, pushedTo: CGPoint, _ topLeft: CGPoint, _ size: CGSize) {
-        setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        let queuedAt = CACurrentMediaTime()
-        _ = withWindowAsync(windowId, .nonCancellable) { window, job in
-            AnimationStats.timeAxWrite(queuedAt: queuedAt, windowId, "so") {
-                window.set(Ax.topLeftCornerAttr, pushedTo)
-                window.set(Ax.sizeAttr, size)
-                window.set(Ax.topLeftCornerAttr, topLeft)
-            }
-        }
     }
 
     /// Enters "animation mode": turns AXEnhancedUserInterface off once (if it was on) so it isn't toggled around every
@@ -476,15 +454,15 @@ extension [UInt32: AxWindow] {
 /// The latest animation frame of each window. Put on the main thread, taken on the app's AX thread
 private final class AnimationFrames: Sendable {
     private let lock = NSLock()
-    typealias Frame = (topLeft: CGPoint, size: CGSize?, positionFirst: Bool)
+    typealias Frame = (topLeft: CGPoint, size: CGSize?)
     nonisolated(unsafe) private var frames: [UInt32: Frame] = [:]
 
     /// Returns false if a write of the window is already queued. That write will take this frame
-    func put(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, _ positionFirst: Bool) -> Bool {
+    func put(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?) -> Bool {
         lock.withLock {
             let queued = unsafe frames[windowId]
             // nil size means "unchanged since the last frame". Don't lose the size of a frame that wasn't written yet
-            unsafe frames[windowId] = (topLeft, size ?? queued?.size, positionFirst)
+            unsafe frames[windowId] = (topLeft, size ?? queued?.size)
             return queued == nil
         }
     }

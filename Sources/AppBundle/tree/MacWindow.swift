@@ -194,8 +194,8 @@ final class MacWindow: Window {
     }
 
     @MainActor override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
-        let sizeToRestore = WindowAnimator.shared.cancel(windowId)
-        macApp.setAxFrame(windowId, topLeft, size ?? sizeToRestore)
+        WindowAnimator.shared.cancel(windowId)
+        macApp.setAxFrame(windowId, topLeft, size)
     }
 
     override func getAxRect(_ cm: CancellationMode) async throws -> Rect? {
