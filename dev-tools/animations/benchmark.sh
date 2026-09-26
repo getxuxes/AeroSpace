@@ -9,7 +9,7 @@
 #
 # Windows it needs (it finds them by app, and creates the TextEdit documents itself; within an app, roles go by window id,
 # so every server gets the same windows in the same roles):
-#   G1 G2 Ghostty, Z1 Z2 Zen, T1 T2 TextEdit, D Discord, F Finder
+#   G1 G2 Ghostty, Z1 Z2 Zen, T1 T2 TextEdit, D Discord, F Finder (or a 3rd Ghostty window)
 # It works on workspaces B1 (the focused monitor), B2 (the other monitor, only F), B3 and B9 (hidden). Windows of other
 # workspaces stay where they are. It moves windows and sends key and mouse events: DON'T touch the mouse or keyboard.
 set -uo pipefail
@@ -49,10 +49,12 @@ find_windows Ghostty G1 G2
 find_windows Zen Z1 Z2
 find_windows Discord D
 find_windows Finder F
+# Without a Finder window, a third Ghostty window is the static one on the other monitor
+[ -n "${role[F]:-}" ] || find_windows Ghostty G1 G2 F
 missing=""
 for r in G1 G2 Z1 Z2 T1 T2 D F; do [ -n "${role[$r]:-}" ] || missing="$missing $r"; done
 if [ -n "$missing" ]; then
-    echo "Missing windows:$missing  (need 2 Ghostty, 2 Zen, 1 Discord, 1 Finder window; TextEdit is created)"
+    echo "Missing windows:$missing  (need 2 Ghostty, 2 Zen, 1 Discord, and 1 Finder or a 3rd Ghostty window; TextEdit is created)"
     exit 1
 fi
 for r in G1 G2 Z1 Z2 T1 T2 D F; do echo "$r=${role[$r]}"; done > "$out/roles.txt"
