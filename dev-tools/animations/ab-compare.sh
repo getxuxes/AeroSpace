@@ -14,8 +14,10 @@
 #   - Animations are on in your config.
 #
 # Usage: ab-compare.sh [suites] [repetitions]      (default: all suites, 3 repetitions)
+#   AB_B=branch AB_B_ANIMATIONS="curve = 'spring'" ab-compare.sh ...   compares this branch against itself with extra
+#   [animations] lines on side B (e.g. to compare curves); the report calls the sides "rama" and "rama-b"
 set -uo pipefail
-suites="${1:-core,layouts,apps,lifecycle,mouse,mon,off}"
+suites="${1:-core,layouts,apps,lifecycle,mouse,mon,real,off}"
 reps="${2:-3}"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 tools="$repo/dev-tools/animations"
@@ -49,6 +51,8 @@ cat "$run/environment.txt"
 echo "== Building tools, this branch, and a main worktree (debug) =="
 ./dev-tools/animations/build.sh || exit 1
 ./build-debug.sh >/dev/null || { echo "branch build failed"; exit 1; }
+b_side="${AB_B:-main}"
+[ "$b_side" = branch ] || [ "$b_side" = main ] || { echo "AB_B must be main or branch"; exit 1; }
 [ -d "$wt" ] || git worktree add --detach "$wt" main
 git -C "$wt" checkout -q --detach main || exit 1
 echo "main worktree at $(git -C "$wt" rev-parse --short HEAD)"
@@ -106,11 +110,19 @@ run_side() { # label, repoDir, suites, configPath
     sleep 1
 }
 
+b_config="$config"
+if [ -n "${AB_B_ANIMATIONS:-}" ]; then
+    b_config="$run/aerospace-b.toml"
+    awk -v extra="$AB_B_ANIMATIONS" '{print} /^\[animations\]/ {print "    " extra}' "$config" > "$b_config"
+    echo "side B config: [animations] + $AB_B_ANIMATIONS"
+fi
+b_root="$wt"; b_label=main
+[ "$b_side" = branch ] && { b_root="$repo"; b_label=branch-b; }
 on_suites=$(echo ",$suites," | sed 's/,off,/,/g; s/^,//; s/,$//')
 echo "!!! DON'T TOUCH THE MOUSE OR KEYBOARD until DONE !!!"
 if [ -n "$on_suites" ]; then
     run_side branch "$repo" "$on_suites" "$config" || exit 1
-    run_side main "$wt" "$on_suites" "$config" || exit 1
+    run_side "$b_label" "$b_root" "$on_suites" "$b_config" || exit 1
 fi
 if [[ ",$suites," == *",off,"* ]]; then
     run_side branch-off "$repo" core "$off_config" || exit 1
@@ -119,7 +131,7 @@ fi
 
 echo "== Report =="
 : > "$run/report.md"
-[ -d "$run/branch" ] && "$tools/.bin/report" "$run/branch" "$run/main" rama main >> "$run/report.md"
+[ -d "$run/branch" ] && "$tools/.bin/report" "$run/branch" "$run/$b_label" rama "$([ "$b_label" = main ] && echo main || echo rama-b)" >> "$run/report.md"
 if [ -d "$run/branch-off" ]; then
     printf '\n# Animaciones desactivadas\n\n' >> "$run/report.md"
     "$tools/.bin/report" "$run/branch-off" "$run/main-off" rama-off main-off >> "$run/report.md"

@@ -5,7 +5,7 @@
 # during each scenario (display link ticks, AX write durations) is saved next to it. report.swift makes the tables.
 #
 # Usage: [BENCH_ONLY='regex'] benchmark.sh <aerospace-cli> <out-dir> <suites> [repetitions] [stats-log]
-#   suites: comma-separated, any of: core layouts apps lifecycle mouse mon
+#   suites: comma-separated, any of: core layouts apps lifecycle mouse mon real
 #   BENCH_ONLY: run only the scenarios whose name matches, e.g. 'lifecycle.close|mouse.drag-.*' 
 #
 # Windows it needs (it finds them by app, and creates the TextEdit documents itself; within an app, roles go by window id,
@@ -357,7 +357,21 @@ if has_suite mouse; then
         c resize --window-id "${role[Z1]}" width +300
         "$bin/mouse" drag "$tx" "$ty" $((tx - 400)) "$ty" 300
     }
+    # h[G1, v[Z1, T1], G2]: the border between Z1 and T1 (horizontal) and between G1 and the column (vertical)
+    s_nest_mouse() { c join-with --window-id "${role[T1]}" left; }
+    a_drag_nested_h() {
+        local z="${role[Z1]}"
+        local bx=$(($(x "$z") + $(w "$z") / 2)) by=$(($(y "$z") + $(h "$z")))
+        "$bin/mouse" drag "$bx" $((by - 1)) "$bx" $((by + 149)) 300
+    }
+    a_drag_nested_v() {
+        local g="${role[G1]}"
+        local bx=$(($(x "$g") + $(w "$g"))) by=$(($(y "$g") + $(h "$g") / 4))
+        "$bin/mouse" drag $((bx - 1)) "$by" $((bx + 149)) "$by" 300
+    }
     run mouse.drag-border 1.0 "G1 Z1 T1" none a_drag_border
+    run mouse.drag-border-nested-h 1.0 "G1 Z1 T1 G2" s_nest_mouse a_drag_nested_h
+    run mouse.drag-border-nested-v 1.0 "G1 Z1 T1 G2" s_nest_mouse a_drag_nested_v
     run mouse.drag-during-animation 1.2 "G1 Z1 T1" none a_drag_during_animation
 fi
 
@@ -385,6 +399,35 @@ if has_suite mon && [ -n "$M2" ]; then
     run mon.move-node 0.8 "G1 Z1 T1" none a_move_node
     run mon.focus-during 1.0 "G1 Z1 T1" s_focus_e a_focus_during
     run mon.move-workspace 1.0 "G1 Z1 T1" none a_move_ws
+fi
+
+# ---------------------------------------------------------------- real: a session at human pace, in one trace
+if has_suite real; then
+    echo "== real"
+    known_textedit_ids() { "$cli" list-windows --all --format '%{window-id}|%{app-name}' | awk -F'|' '$2 ~ /TextEdit/ {print $1}' | tr -d ' '; }
+    s_session() {
+        c move-node-to-workspace --window-id "${role[G2]}" B3
+        c move-node-to-workspace --window-id "${role[Z2]}" B3
+        c focus --window-id "${role[G1]}"
+    }
+    # Open a document, move it, resize a neighbour, go to another workspace and back, close the document. The pauses
+    # are the pace of a person between commands, not something the animations wait for
+    a_session() {
+        new_textedit_doc
+        for _ in $(seq 1 40); do
+            for id in $(known_textedit_ids); do [ "$id" != "${role[T1]}" ] && [ "$id" != "${role[T2]}" ] && NEW="$id"; done
+            [ -n "$NEW" ] && break
+            sleep 0.1
+        done
+        sleep 0.5
+        c move --window-id "$NEW" left; sleep 0.5
+        c resize --window-id "${role[G1]}" width +120; sleep 0.5
+        c workspace B3; sleep 0.6
+        c workspace B1; sleep 0.5
+        c close --window-id "$NEW"
+    }
+    t_session() { NEW=""; c workspace B1; }
+    run real.session 5.0 "G1 Z1" s_session a_session t_session
 fi
 
 layout_roles G1 Z1 T1
